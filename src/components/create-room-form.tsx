@@ -1,7 +1,6 @@
 "use client";
 
 import { useActionState } from "react";
-import Link from "next/link";
 import { createRoom, type RoomActionState } from "@/actions/rooms";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -13,13 +12,12 @@ const initial: RoomActionState = {};
 
 const GAME_INFO = {
   lyar: { icon: "Ly", title: "라이어 게임", spec: "3명 이상 · 말하기 추리" },
-  cmy: { icon: "CMy", title: "양세찬 게임", spec: "2명 이상 · 예/아니오 질문 추리" },
+  cmy: { icon: "CMy", title: "양세찬 게임", spec: "2명 이상 · 단어 맞추기" },
 } as const;
 
 export function CreateRoomForm({ game }: { game: "lyar" | "cmy" }) {
   const [state, formAction, pending] = useActionState(createRoom, initial);
   const info = GAME_INFO[game];
-  const other = game === "lyar" ? ("cmy" as const) : ("lyar" as const);
 
   return (
     <div className="flex flex-col gap-7">
@@ -84,15 +82,6 @@ export function CreateRoomForm({ game }: { game: "lyar" | "cmy" }) {
           {pending ? "만드는 중…" : "방 만들기"}
         </Button>
       </form>
-
-      <p className="text-center text-sm text-muted-foreground">
-        <Link
-          href={`/rooms/create?game=${other}`}
-          className="font-semibold text-foreground underline-offset-4 hover:underline"
-        >
-          {GAME_INFO[other].title} 방 만들기 →
-        </Link>
-      </p>
     </div>
   );
 }
