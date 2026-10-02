@@ -18,7 +18,7 @@ export const metadata: Metadata = {
     template: "%s · 파티룸",
   },
   description:
-    "3명 이상이 함께 즐기는 멀티플레이 파티 게임. 현재 플레이 가능: 라이어 게임",
+    "3명 이상이 함께 즐기는 멀티플레이 파티 게임. 현재 플레이 가능: 라이어 게임, 양세찬 게임",
 };
 
 export const viewport: Viewport = {
