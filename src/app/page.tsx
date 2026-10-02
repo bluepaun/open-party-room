@@ -1,69 +1,153 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import Link from "next/link";
+import { motion } from "motion/react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { TopNav, PageFoot } from "@/components/top-nav";
+
+const games = [
+  {
+    id: "lyar",
+    no: "GAME 01",
+    word: "라이어",
+    title: "라이어 게임",
+    spec: "3–8명 · 5–10분",
+    playable: true,
+    href: "/rooms/create",
+    cta: "방 만들기",
+  },
+  {
+    id: "whisper",
+    no: "",
+    word: "속삭",
+    title: "속삭임 게임",
+    spec: "3–10명 · 5–10분",
+    playable: false,
+    href: "",
+    cta: "준비 중",
+  },
+  {
+    id: "mafia",
+    no: "",
+    word: "마피아",
+    title: "마피아",
+    spec: "6–12명 · 20–40분",
+    playable: false,
+    href: "",
+    cta: "준비 중",
+  },
+];
+
+export default function HomePage() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <>
+      <TopNav
+        right={
+          <Button asChild variant="ghost" className="h-9 px-3 text-base">
+            <Link href="/join">코드로 참가</Link>
+          </Button>
+        }
+      />
+
+      <main className="px-4 py-12 md:px-6 lg:px-10 lg:py-16">
+        <div className="mx-auto max-w-7xl">
+          <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="mb-2 text-xs font-semibold tracking-[0.08em] text-muted-foreground">
+                GAME LIST
+              </p>
+              <h1 className="text-2xl font-bold tracking-display">
+                오늘 할 게임을 고르세요
+              </h1>
+            </div>
+            <Badge variant="outline" className="h-6 px-2.5">
+              3–8명 · 기기 1대 이상
+            </Badge>
+          </div>
+
+          <motion.div
+            initial="hidden"
+            animate="show"
+            variants={{
+              hidden: {},
+              show: { transition: { staggerChildren: 0.08 } },
+            }}
+            className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3"
           >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            {games.map((g) => (
+              <motion.article
+                key={g.id}
+                variants={{
+                  hidden: { opacity: 0, y: 14 },
+                  show: {
+                    opacity: 1,
+                    y: 0,
+                    transition: { duration: 0.35, ease: [0.2, 0, 0, 1] },
+                  },
+                }}
+                className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card"
+              >
+                {g.playable ? (
+                  <div
+                    aria-hidden="true"
+                    className="flex aspect-[4/3] flex-col justify-between bg-foreground p-5 text-background"
+                  >
+                    <span className="font-mono text-xs font-semibold tracking-[0.18em] opacity-60">
+                      {g.no}
+                    </span>
+                    <span className="text-3xl font-bold leading-none tracking-display">
+                      {g.word}
+                    </span>
+                  </div>
+                ) : (
+                  <div
+                    aria-hidden="true"
+                    className="flex aspect-[4/3] place-items-center bg-surface-warm text-3xl font-bold tracking-[0.12em] text-border"
+                  >
+                    {g.word}
+                  </div>
+                )}
+                <div className="flex flex-1 flex-col p-4 pt-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="text-lg font-bold tracking-[-0.01em]">
+                      {g.title}
+                    </h2>
+                    <Badge
+                      variant={g.playable ? "secondary" : "outline"}
+                      className="h-6 px-2.5"
+                    >
+                      {g.playable ? "플레이 가능" : "준비 중"}
+                    </Badge>
+                  </div>
+                  <p className="mt-2 font-mono text-sm text-meta">{g.spec}</p>
+                  <div className="mt-4 pt-1">
+                    {g.playable ? (
+                      <Button
+                        asChild
+                        className="h-11 w-full rounded-lg text-base"
+                        variant="default"
+                      >
+                        <Link href={g.href}>{g.cta}</Link>
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        className="h-11 w-full rounded-lg text-base opacity-55"
+                        disabled
+                      >
+                        {g.cta}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </motion.article>
+            ))}
+          </motion.div>
         </div>
       </main>
-    </div>
+
+      <PageFoot />
+    </>
   );
 }

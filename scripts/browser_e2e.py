@@ -1,0 +1,193 @@
+"""
+브라우저 E2E — 3개 독립 컨텍스트(기기)로 전체 유저 여정을 검증.
+실행: /Users/bluepaun/.pi/agent/skills/camoufox-search/.venv/bin/python scripts/browser_e2e.py
+"""
+import sys
+import time
+from pathlib import Path
+
+from camoufox.sync_api import Camoufox
+
+BASE = "http://localhost:3000"
+SHOTS = Path("/tmp/party-shots")
+SHOTS.mkdir(exist_ok=True)
+
+steps = []
+
+
+def log(msg):
+    print(f"[e2e] {msg}", flush=True)
+    steps.append(msg)
+
+
+def shot(page, name):
+    p = SHOTS / f"{name}.png"
+    page.screenshot(path=str(p))
+    log(f"screenshot: {p}")
+
+
+class Device:
+    def __init__(self, browser, label):
+        self.label = label
+        self.context = browser.new_context(viewport={"width": 1280, "height": 900})
+        self.page = self.context.new_page()
+        self.dialog_ok = True
+        self.page.on("dialog", lambda d: (log(f"{label} dialog: {d.message}"), d.accept() if self.dialog_ok else d.dismiss()))
+
+    def goto(self, path):
+        self.page.goto(BASE + path, wait_until="domcontentloaded", timeout=30000)
+
+    def wait(self, ms=800):
+        self.page.wait_for_timeout(ms)
+
+
+def wait_for(page, selector, timeout=15000, label=""):
+    page.wait_for_selector(selector, timeout=timeout, state="visible")
+    if label:
+        log(f"{page}: {label} 보임")
+
+
+def main():
+    with Camoufox(headless=True, geoip=True, os="macos") as browser:
+        host = Device(browser, "host")
+        p2 = Device(browser, "p2")
+        p3 = Device(browser, "p3")
+
+        # ── 1. 홈 ──
+        host.goto("/")
+        wait_for(host.page, "h1", label="홈 h1")
+        shot(host.page, "01-home")
+
+        # ── 2. 방 만들기 (호스트) ──
+        host.page.click('a[href="/rooms/create"]')
+        wait_for(host.page, "#hostName", label="createForm")
+        host.page.fill("#name", "브라우저 E2E 방")
+        host.page.fill("#hostName", "지우")
+        host.page.click('button[type="submit"]')
+        host.page.wait_for_url("**/room/**", timeout=20000)
+        code = host.page.url.rstrip("/").split("/")[-1]
+        log(f"방 생성 완료: {code}")
+        host.wait(1500)
+        shot(host.page, "02-lobby-host")
+
+        # ── 3. 참가 (p2, p3) ──
+        p2.goto(f"/join?code={code}")
+        wait_for(p2.page, "#code", label="joinForm")
+        p2.page.wait_for_timeout(500)  # prefill
+        p2.page.fill("#join-name", "민준")
+        p2.page.click('button[type="submit"]')
+        p2.page.wait_for_url("**/room/**", timeout=20000)
+        p2.wait(1200)
+
+        p3.goto(f"/join?code={code}")
+        wait_for(p3.page, "#code", label="joinForm")
+        p3.page.wait_for_timeout(500)
+        p3.page.fill("#join-name", "수진")
+        p3.page.click('button[type="submit"]')
+        p3.page.wait_for_url("**/room/**", timeout=20000)
+        p3.wait(1200)
+        shot(host.page, "03-lobby-3players")
+
+        # 호스트 화면에 3명 확인
+        players_text = host.page.text_content("main")
+        assert "지우" in players_text and "민준" in players_text and "수진" in players_text, players_text
+        log("3명 모두 로비 표시 확인")
+
+        # ── 4. 게임 시작 ──
+        host.page.click('button:has-text("게임 시작")')
+        host.wait(1500)
+        shot(host.page, "04-reveal-host")
+        shot(p2.page, "04-reveal-p2")
+        shot(p3.page, "04-reveal-p3")
+
+        # 역할 확인 클릭 (각자)
+        for d in (host, p2, p3):
+            d.page.click('button:has-text("알겠어요")')
+            d.wait(400)
+        host.wait(1200)
+        shot(host.page, "05-explain")
+
+        # ── 5. 설명 순서 진행 (차례인 사람이 설명 완료) ──
+        for _ in range(6):
+            clicked = False
+            for d in (host, p2, p3):
+                btn = d.page.locator('button:has-text("설명 완료")')
+                if btn.count() > 0 and btn.is_visible():
+                    log(f"{d.label} 설명 완료 클릭")
+                    btn.click()
+                    clicked = True
+                    break
+            if not clicked:
+                # vote phase인지 확인
+                if host.page.locator('h1:has-text("라이어를 투표하세요")').count() > 0:
+                    break
+            host.wait(700)
+        host.wait(800)
+        shot(host.page, "06-vote")
+
+        # ── 6. 투표: 각자 목록의 첫 번째(자기 제외) 투표 ──
+        for d in (host, p2, p3):
+            opts = d.page.locator('[role="radiogroup"] button')
+            if opts.count() > 0:
+                log(f"{d.label} 투표: {opts.first.text_content().strip()[:20]}")
+                opts.first.click()
+                d.wait(300)
+                d.page.click('button:has-text("에게 투표하기")')
+                d.wait(400)
+        host.wait(1000)
+        shot(host.page, "07-tally")
+
+        # ── 7. 다음/결과 보기 ──
+        for d in (host, p2, p3):
+            btn = d.page.locator('button:has-text("결과 보기"), button:has-text("다음")')
+            if btn.count() > 0 and btn.first.is_visible():
+                btn.first.click()
+                break
+        host.wait(1200)
+        shot(host.page, "08-guess-or-result")
+
+        # guess phase라면 (라이어 화면에 입력框)
+        for d in (host, p2, p3):
+            gi = d.page.locator("#guess-input")
+            if gi.count() > 0 and gi.is_visible():
+                log(f"{d.label}은(는) guess 단계 — 추측 제출")
+                gi.fill("치킨")
+                d.page.click('button:has-text("제출하기")')
+                break
+        host.wait(1200)
+        shot(host.page, "09-result")
+        result_text = host.page.text_content("main")
+        log(f"결과 화면: {result_text[:80]!r}")
+
+        # ── 8. 한 판 더 (호스트) ──
+        host.page.click('button:has-text("한 판 더")')
+        host.wait(1500)
+        shot(host.page, "10-new-round-reveal")
+
+        # ── 9. p2 게임 중 이탈 (상단 나가기, confirm accept) ──
+        p2.page.click('button:has-text("나가기")')
+        p2.page.wait_for_url("**/", timeout=20000)
+        log("p2 게임 중 이탈 → 홈 (라운드 초기화)")
+        host.wait(1000)
+        shot(host.page, "11-after-leave")
+        host_text = host.page.text_content("main") or ""
+        assert "민준" not in host_text, f"이탈 후에도 민준 표시됨: {host_text[:200]}"
+        log("이탈자 로비에서 제거 확인")
+
+        # ── 10. 호스트 방 정리 (confirm accept) ──
+        host.page.click('button:has-text("방을 정리하고 새로 시작")')
+        host.page.wait_for_url("**/", timeout=20000)
+        log("호스트 방 정리 → 홈")
+
+        for d in (host, p2, p3):
+            d.context.close()
+
+    log("✅ BROWSER E2E DONE")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        log(f"❌ FAILED: {e}")
+        sys.exit(1)
