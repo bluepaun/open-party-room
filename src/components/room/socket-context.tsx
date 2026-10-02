@@ -70,6 +70,8 @@ export function RoomProvider({
   const [authFailed, setAuthFailed] = useState(false);
   const [roomClosed, setRoomClosed] = useState(false);
   const socketRef = useRef<Socket | null>(null);
+  // 현재 라운드 startedAt — 라운드 전환 감지용 (myVote 리셋)
+  const roundRef = useRef<number | null>(null);
 
   useEffect(() => {
     const socket = io({
@@ -86,7 +88,16 @@ export function RoomProvider({
       // 라운드 초기화(게임 중 이탈) 시 게임 상태도 비워줌
       if (r.status === "lobby") setGame(null);
     });
-    socket.on(EV.gameState, (g: GameDTO) => setGame(g));
+    socket.on(EV.gameState, (g: GameDTO) => {
+      // 새 라운드 진입(startedAt 변화) 시 "투표함" 표시 초기화 —
+      // 지난 라운드 myVote가 남아 있으면 새 라운드 투표 단계에서
+      // 투표용지를 건너뛴 채 "투표 완료" 화면이 보여진다.
+      if (roundRef.current !== null && g.startedAt !== roundRef.current) {
+        setMyVote(null);
+      }
+      roundRef.current = g.startedAt;
+      setGame(g);
+    });
     socket.on(EV.youRole, (y: YouRoleDTO) => setYou(y));
     socket.on(EV.myVote, (v: { targetId: string }) => setMyVote(v.targetId));
     socket.on(EV.roomClosed, () => {

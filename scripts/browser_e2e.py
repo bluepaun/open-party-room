@@ -164,6 +164,31 @@ def main():
         host.wait(1500)
         shot(host.page, "10-new-round-reveal")
 
+        # ── 8b. 2라운드: 투표 단계에서 투표용지가 다시 보여야 함 (myVote 라운드 리셋 회귀) ──
+        # 3명 모두 1라운드에서 투표함 — 2라운드 투표 단계에서
+        # "투표 완료"가 먼저 보이면 지난 라운드 myVote가 남아 있다는 뜻
+        for d in (host, p2, p3):
+            d.page.click('button:has-text("알겠어요")')
+            d.wait(300)
+        for _ in range(6):
+            clicked = False
+            for d in (host, p2, p3):
+                btn = d.page.locator('button:has-text("설명 완료")')
+                if btn.count() > 0 and btn.is_visible():
+                    btn.click()
+                    clicked = True
+                    break
+            if not clicked:
+                if host.page.locator('h1:has-text("라이어를 투표하세요")').count() > 0:
+                    break
+            host.wait(700)
+        host.wait(800)
+        for d in (host, p2, p3):
+            assert d.page.locator('h1:has-text("라이어를 투표하세요")').count() > 0, \
+                f"{d.label} 2라운드: 투표용지 미표시 (투표 완료 화면으로 건너뛴?)"
+        log("2라운드 투표 단계: 3명 모두 투표용지 표시 (myVote 리셋 확인)")
+        shot(host.page, "10b-round2-vote")
+
         # ── 9. p2 게임 중 이탈 (상단 나가기, confirm accept) ──
         p2.page.click('button:has-text("나가기")')
         p2.page.wait_for_url("**/", timeout=20000)
