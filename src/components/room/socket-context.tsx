@@ -49,9 +49,8 @@ interface RoomContextValue {
   vote: (targetId: string) => void;
   next: () => void;
   submitGuess: (word: string) => void;
-  cmyAsk: (text: string) => void;
-  cmyAnswer: (a: "yes" | "no") => void;
   cmyGuess: (word: string) => void;
+  cmyConfirm: () => void;
   cmyMasterSubmit: (words: Record<string, string>) => Promise<AckResult>;
 }
 
@@ -179,14 +178,11 @@ export function RoomProvider({
   const submitGuess = useCallback((word: string) => {
     socketRef.current?.emit(C2S.guess, word);
   }, []);
-  const cmyAsk = useCallback((text: string) => {
-    socketRef.current?.emit(C2S.cmyAsk, text);
-  }, []);
-  const cmyAnswer = useCallback((a: "yes" | "no") => {
-    socketRef.current?.emit(C2S.cmyAnswer, a);
-  }, []);
   const cmyGuess = useCallback((word: string) => {
     socketRef.current?.emit(C2S.cmyGuess, word);
+  }, []);
+  const cmyConfirm = useCallback(() => {
+    socketRef.current?.emit(C2S.cmyConfirm);
   }, []);
   const cmyMasterSubmit = useCallback(
     (words: Record<string, string>) =>
@@ -220,15 +216,14 @@ export function RoomProvider({
       vote,
       next,
       submitGuess,
-      cmyAsk,
-      cmyAnswer,
       cmyGuess,
+      cmyConfirm,
       cmyMasterSubmit,
     }),
     [
       room, game, you, myVote, cmyGame, cmyYou, cmyMyGuess, connected, authFailed, roomClosed,
       playerId, name, startGame, newRound, confirmReveal, explainDone,
-      vote, next, submitGuess, cmyAsk, cmyAnswer, cmyGuess, cmyMasterSubmit,
+      vote, next, submitGuess, cmyGuess, cmyConfirm, cmyMasterSubmit,
     ],
   );
 

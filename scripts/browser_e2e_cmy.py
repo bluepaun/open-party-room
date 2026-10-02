@@ -1,13 +1,13 @@
 """
 브라우저 E2E (양세찬 게임) — 3개 독립 컨텍스트(기기)로 UI 전체를 검증.
-- 홈 카드 → ?game=cmy 방 만들기 → 로비 설정(모드/제시어/타이머) → 플레이
-- 이마 모드: 타인 단어 배지 표시 / 질문·답변 UI / 정답 추정 / 결과 등수
+- 홈 카드 → ?game=cmy 방 만들기 → 로비 설정(모드/제시어/타이머)
+- 1라운드 (이마): 카운트다운 → 내 단어 전체화면 → '정답' 버튼 확인 → 결과
+- 2라운드 (손): 타인 단어 카드 트레이 → 턴별 추정(오답→턴 상실) → 결과
 실행: PORT=3030 /Users/bluepaun/.pi/agent/skills/camoufox-search/.venv/bin/python scripts/browser_e2e_cmy.py
 """
 import json
 import os
 import sqlite3
-import subprocess
 from pathlib import Path
 
 from camoufox.sync_api import Camoufox
@@ -42,7 +42,7 @@ class Device:
         self.page.wait_for_timeout(ms)
 
     def main_text(self):
-        return self.page.text_content("main")
+        return self.page.text_content("main") or ""
 
 
 def db_query(sql, args=()):
@@ -68,12 +68,10 @@ def main():
         card = host.page.locator('article:has-text("양세찬 게임")')
         assert card.count() == 1, "홈에 양세찬 게임 카드가 있어야 함"
         log("홈: 양세찬 게임 카드 발견")
-        shot(host.page, "01-home")
 
         # ── 2. 방 만들기 (?game=cmy) ──
         host.page.click('a[href="/rooms/create?game=cmy"]')
         host.page.wait_for_selector("#hostName", timeout=15000)
-        assert host.page.locator('input[name="game"][value="cmy"]').count() == 1, "game=cmy hidden input"
         host.page.fill("#name", "CMy E2E 방")
         host.page.fill("#hostName", "지우")
         host.page.click('button[type="submit"]')
@@ -93,46 +91,26 @@ def main():
             d.page.wait_for_url("**/room/**", timeout=20000)
             d.wait(1200)
         log("3명 모두 접속")
-        shot(host.page, "02-lobby")
 
-        # ── 4. 로비 설정 UI 검증 ──
+        # ── 4. 로비: 기본 모드 이마 (전체화면) 확인 ──
         t = host.main_text()
-        assert "양세찬 게임" in t, "로비에 게임 제목"
         assert "게임 설정" in t, "게임 설정 카드"
-        assert "이마" in t and "손" in t and "랜덤" in t and "출제자" in t and "타이머" in t, "설정 항목"
-        log("로비: 게임 설정(모드/제시어/타이머) 확인")
+        assert "내 단어 전체화면" in t, "이마 모드 라벨 (내 단어 전체화면)"
+        log("로비: 게임 설정 확인 (기본: 이마)")
 
-        # 모드 토글: 손 → active 확인 → 이마로 복원
-        hand_btn = host.page.locator('button:has-text("✋ 손")')
-        hand_btn.click()
-        for _ in range(25):
-            cls = hand_btn.evaluate("el => el.className")
-            if "bg-surface-warm" in cls:
-                break
-            host.wait(200)
-        assert "bg-surface-warm" in cls, "손 모드 active 클래스"
-        log("로비: 모드 토글 '손' active 확인")
-        shot(host.page, "03-mode-hand")
-        host.page.locator('button:has-text("🔝 이마")').click()
-        for _ in range(25):
-            cls = host.page.locator('button:has-text("🔝 이마")').evaluate("el => el.className")
-            if "bg-surface-warm" in cls:
-                break
-            host.wait(200)
-        assert "bg-surface-warm" in cls, "이마 모드 복원 active"
-        log("로비: 모드 '이마'로 복원")
-
-        # ── 5. 게임 시작 ──
+        # ── 5. 1라운드 (이마): 시작 ──
         host.page.click('button:has-text("게임 시작")')
+        host.wait(700)
+        shot(host.page, "04-countdown")
+        # 카운트다운 → "다른 사람에게 보이게 해주세요" (3초)
         for d in devices.values():
-            d.page.wait_for_selector("text=CALL MY NAME", timeout=15000)
-        log("play 진입 (3기기)")
-        host.wait(800)
-        shot(host.page, "04-play-start")
+            d.page.wait_for_selector("text=다른 사람에게 보이게 해주세요", timeout=15000)
+        log("이마: 3기기 모두 공개 화면 진입 (카운트다운 종료)")
+        host.wait(400)
 
-        # ── 6. 이마 배지: 각 기기는 타인 단어 2개 표시 ──
+        # ── 6. 각 기기: 내 단어 전체화면 확인 ──
         room_row = db_query("SELECT words FROM cmy_games WHERE room_id=?", (code,))
-        words_map = json.loads(room_row[0][0])  # {pid: word}
+        words_map = json.loads(room_row[0][0])
         players = db_query(
             "SELECT id, name FROM players WHERE room_id=? ORDER BY joined_at", (code,)
         )
@@ -142,21 +120,63 @@ def main():
 
         for key, d in devices.items():
             me = names[key]
-            d.page.wait_for_timeout(300)
-            t = d.main_text()
-            others = [w for n, w in word_by_name.items() if n != me]
-            for w in others:
-                assert w in t, f"{me}: 타인 단어 '{w}' 배지缺失"
-            log(f"이마 배지: {me}는 타인 단어 {others} 확인")
-        shot(host.page, "05-forehead-badges")
+            w = word_by_name[me]
+            d.page.wait_for_selector(f"p:has-text('{w}')", timeout=10000)
+            assert "정답" in d.main_text(), f"{me}: '정답' 버튼 없음"
+            log(f"이마: {me} 화면 = 내 단어 '{w}' 전체화면 + 정답 버튼")
+        shot(host.page, "05-forehead-fullscreen")
 
-        # ── 7. 턴 루프: 1턴 = 질문 또는 추정 (택1) — 전원 해결까지 ──
-        # 각 플레이어: 오답 추정 1회(턴 상실) → 질문 1회(턴 소비) → 정답 추정 1회
+        # ── 7. '정답' 버튼 순차 확인 (다른 사람이 맞춰준 설정) → 전원 해결 ──
+        for i, key in enumerate(("host", "p2", "p3")):
+            d = devices[key]
+            d.page.click('button:has-text("정답")')
+            d.wait(1200)
+            assert "맞혔어요" in d.main_text(), f"{names[key]}: 확인 후 '맞혔어요' 없음"
+            log(f"이마: {names[key]} '정답' 확인 → {i + 1}위")
+        host.page.wait_for_selector("text=라운드 종료!", timeout=15000)
+        t = host.main_text()
+        for w in word_by_name.values():
+            assert w in t, f"결과 단어 공개: {w}"
+        log("결과: 등수 + 전원 단어 공개 확인")
+        shot(host.page, "06-result-forehead")
+
+        # ── 8. 대기실 → 손 모드로 전환 → 2라운드 ──
+        host.page.click('button:has-text("대기실로")')
+        host.page.wait_for_selector("text=JUST FINISHED", timeout=15000)
+        hand_btn = host.page.locator('button:has-text("✋ 손")')
+        hand_btn.click()
+        for _ in range(25):
+            if "bg-surface-warm" in hand_btn.evaluate("el => el.className"):
+                break
+            host.wait(200)
+        assert "bg-surface-warm" in hand_btn.evaluate("el => el.className"), "손 모드 active"
+        log("로비: 손 모드로 전환")
+        host.page.click('button:has-text("한 판 더")')
+        for d in devices.values():
+            d.page.wait_for_selector("text=CALL MY NAME", timeout=15000)
+        log("2라운드 (손) 진입")
+        host.wait(800)
+
+        # ── 9. 손 모드: 타인 단어 카드 트레이 + 추정 루프 ──
+        room_row = db_query("SELECT words FROM cmy_games WHERE room_id=?", (code,))
+        words_map = json.loads(room_row[0][0])
+        word_by_name2 = {pid2name[pid]: w for pid, w in words_map.items()}
+        log(f"새 단어: {word_by_name2}")
+
+        for key, d in devices.items():
+            me = names[key]
+            others = [w for n, w in word_by_name2.items() if n != me]
+            assert "내 손 카드" in d.main_text(), f"{me}: 카드 트레이 없음"
+            for w in others:
+                assert w in d.main_text(), f"{me}: 타인 단어 '{w}' 트레이에 없음"
+            assert d.page.locator("#cmy-question").count() == 0, f"{me}: 질문 입력 UI 잔존"
+            assert d.page.locator('button:has-text("질문하기")').count() == 0, f"{me}: 질문하기 버튼 잔존"
+            log(f"손: {me} 타인 단어 {others} 확인 (질문 UI 없음)")
+        shot(host.page, "07-hand-tray")
+
         solved = set()
-        wrongGuessed = set()
-        asked = set()
+        wrong = set()
         while len(solved) < 3:
-            # 턴 플레이어 찾기 (h1 "당신 차례예요!")
             turn_key = None
             for key, d in devices.items():
                 if key in solved:
@@ -166,64 +186,43 @@ def main():
                     turn_key = key
                     break
             assert turn_key, f"턴 플레이어 미발견 (solved={solved})"
-            turn = devices[turn_key]
-            turn_name = names[turn_key]
+            d = devices[turn_key]
+            name = names[turn_key]
 
-            if turn_key not in wrongGuessed:
-                # 1) 오답 추정 → "아직 아니에요!" 토스트 → 질문 기회 상실
-                turn.page.click('button:has-text("내 단어를 알아냈어요!")')
-                turn.page.fill("#cmy-guess", "없는 단어 xyz")
-                turn.page.click('button:has-text("외치기!")')
-                turn.page.wait_for_selector("text=아직 아니에요!", timeout=10000)
-                wrongGuessed.add(turn_key)
-                log(f"오답: {turn_name} → 턴 상실 (다음 사람 차례)")
-                for d in devices.values():
-                    d.wait(800)
+            if turn_key not in wrong:
+                d.page.fill("#cmy-guess", "없는 단어 xyz")
+                d.page.click('button:has-text("외치기!")')
+                d.page.wait_for_selector("text=아직 아니에요!", timeout=10000)
+                wrong.add(turn_key)
+                log(f"손: 오답 {name} → 턴 상실 (다음 사람 차례)")
+                for x in devices.values():
+                    x.wait(800)
                 continue
 
-            if turn_key not in asked:
-                # 2) 질문 (턴 소비) → 다른 전원이 답변
-                log(f"턴: {turn_name} (질문)")
-                turn.page.fill("#cmy-question", "저는 사람인가요?")
-                turn.page.click('button:has-text("질문하기")')
-                turn.wait(600)
-                shot(turn.page, f"06-question-{turn_name}")
-                for key, d in devices.items():
-                    if key == turn_key:
-                        continue
-                    d.page.locator('button:has-text("아니요")').click()
-                asked.add(turn_key)
-                for d in devices.values():
-                    d.wait(1000)
-                continue
-
-            # 3) 정답 추정 (질문 대신) → 해결
-            log(f"턴: {turn_name} (추정)")
-            turn.page.click('button:has-text("내 단어를 알아냈어요!")')
-            turn.page.fill("#cmy-guess", word_by_name[turn_name])
-            turn.page.click('button:has-text("외치기!")')
-            turn.wait(1500)
-            assert "맞혔어요" in turn.main_text(), f"{turn_name}: 추정 성공 배너 없음"
+            d.page.fill("#cmy-guess", word_by_name2[name])
+            d.page.click('button:has-text("외치기!")')
+            try:
+                d.page.wait_for_selector("text=맞혔어요", timeout=8000)
+            except Exception:
+                row = db_query(
+                    "SELECT phase, json_extract(solved, '$') FROM cmy_games WHERE room_id=?", (code,)
+                )
+                log(f"DEBUG {name} guess fail | db: {row} | text: {d.main_text()[:400]!r}")
+                raise
             solved.add(turn_key)
-            log(f"추정 성공: {turn_name} ({len(solved)}/3)")
-            for d in devices.values():
-                d.wait(600)
+            log(f"손: 추정 성공 {name} ({len(solved)}/3)")
+            for x in devices.values():
+                x.wait(600)
 
-        # ── 8. 결과 ──
-        host.page.wait_for_selector("text=라운드 종료!", timeout=15000)
-        t = host.main_text()
-        for w in word_by_name.values():
-            assert w in t, f"결과 단어 공개: {w}"
-        log("결과: 등수 + 전원 단어 공개 확인")
-        assert host.page.locator('button:has-text("한 판 더")').count() == 1, "호스트 '한 판 더'"
-        assert host.page.locator('button:has-text("대기실로")').count() == 1, "'대기실로'"
-        shot(host.page, "07-result")
-
-        # ── 9. 대기실로 → JUST FINISHED 카드 ──
-        host.page.click('button:has-text("대기실로")')
-        host.page.wait_for_selector("text=JUST FINISHED", timeout=15000)
-        log("대기실: JUST FINISHED 카드 확인")
-        shot(host.page, "08-lobby-after")
+        try:
+            host.page.wait_for_selector("text=라운드 종료!", timeout=15000)
+        except Exception:
+            log("DEBUG host text:\n" + host.main_text()[:600])
+            log("DEBUG host url: " + host.page.url)
+            shot(host.page, "08-debug-hand")
+            raise
+        log("2라운드 결과 도달")
+        shot(host.page, "08-result-hand")
 
         # ── 정리 ──
         db_query("DELETE FROM rooms WHERE code=?", (code,))

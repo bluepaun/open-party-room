@@ -37,20 +37,20 @@ const RULES_LYAR: { bold: string; text: string }[] = [
 
 const RULES_CMY: { bold: string; text: string }[] = [
   {
-    bold: "각자 단어",
-    text: "내 제시어는 숨겨지고, 다른 모든 플레이어의 제시어는 내게 보여요.",
+    bold: "이마",
+    text: "카운트다운 후 내 단어가 화면 전체에 보여요. 다른 사람에게 보이게 하고, 맞춰 말하면 '정답' 버튼을 눌러요.",
   },
   {
-    bold: "질문",
-    text: "순서대로 예/아니오로 답할 수 있는 질문을 하나 해요. 다른 전원이 사실대로 답해요.",
+    bold: "손",
+    text: "다른 사람들의 단어만 보여요. 내 차례에 내 단어를 입력해요 — 실패하면 질문 기회 없이 다음 사람 차례!",
   },
   {
-    bold: "추측",
-    text: "자기 차례에 질문 대신 정답을 외칠 수 있어요. 실패하면 질문 기회 없이 다음 사람 차례! 맞힌 순서대로 1, 2, 3위.",
+    bold: "등수",
+    text: "맞힌 순서대로 1, 2, 3위. 끝까지 못 맞힌 사람은 꼴등.",
   },
   {
     bold: "",
-    text: "끝까지 못 맞힌 사람은 꼴등. 타이머 ON: 라운드 3분 · 질문 60초 · 답변 30초.",
+    text: "타이머 ON: 라운드 3분 (손 모드 턴 60초).",
   },
 ];
 
@@ -336,7 +336,7 @@ export function LobbyView({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
                   patch({ cmyMode: "forehead" });
                 }}
                 label="🔝 이마"
-                sub="상대 이마 배지"
+                sub="내 단어 전체화면"
               />
               <SegBtn
                 active={mode === "hand"}

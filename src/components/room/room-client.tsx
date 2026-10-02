@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { leaveRoom } from "@/actions/rooms";
 import { TopNav } from "@/components/top-nav";
@@ -17,6 +17,18 @@ function RoomShell({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
   const { room, game, cmyGame, connected, authFailed, roomClosed, meId, meName } = useRoom();
   const router = useRouter();
   const [viewLobby, setViewLobby] = useState(false);
+
+  // viewLobby는 result phase 동안만 의미: 새 라운드 시작(result→아님) 시 자동 해제
+  const inResult = room
+    ? room.game === "cmy"
+      ? cmyGame?.phase === "result"
+      : game?.phase === "result"
+    : false;
+  const prevInResultRef = useRef(false);
+  useEffect(() => {
+    if (prevInResultRef.current && !inResult) setViewLobby(false);
+    prevInResultRef.current = inResult;
+  }, [inResult]);
 
   // 인증 실패 / 방 정리 → 홈(또는 참가)으로
   useEffect(() => {
@@ -44,9 +56,6 @@ function RoomShell({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
   }
 
   const inGame = room.status === "game";
-  // viewLobby는 result phase 동안만 의미: 새 라운드 시작(phase 변경) 시 자동 해제
-  const inResult =
-    room.game === "cmy" ? cmyGame?.phase === "result" : game?.phase === "result";
   const showLobby = !inGame || (viewLobby && inResult);
 
   const exitGame = () => {
@@ -69,7 +78,7 @@ function RoomShell({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
             <>
               {room.game === "cmy" ? (
                 <span className="hidden text-sm font-semibold text-muted-foreground md:inline">
-                  질문 · 추리
+                  추리 · 맞추기
                 </span>
               ) : (
                 <PhaseNav phase={game?.phase ?? "reveal"} />

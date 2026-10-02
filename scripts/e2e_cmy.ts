@@ -1,7 +1,7 @@
 /**
  * E2E: 양세찬 게임(콜 마이 네임) 소켓 시나리오.
- * 1) hand + random + 타이머 OFF + 2인: 질문→답변→추정 → 결과 → 한 판 더(단어 재사용 방지)
- * 2) forehead + master + 3인(참가 2 + 출제자): setup 검증 → 플레이 → 결과
+ * 1) hand + random + 타이머 OFF + 2인: 추정 전용 (오답→턴 상실, 정답→등수) → 결과 → 한 판 더
+ * 2) forehead + master + 3인(참가 2 + 출제자): setup → 공개(카운트다운) → '정답' 확인 → 결과
  * 3) master 모드 2인 시작 차단
  * 실행: PORT=3030 npx tsx scripts/e2e_cmy.ts  (dev 서버 실행 중일 때)
  */
@@ -23,13 +23,6 @@ function check(cond: boolean, label: string, extra?: unknown) {
   }
 }
 
-interface CmyQuestion {
-  text: string;
-  askedBy: string;
-  answers: Record<string, string>;
-  answered: number;
-  total: number;
-}
 interface CmyState {
   phase: string;
   startedAt: number;
@@ -39,9 +32,7 @@ interface CmyState {
   roundDeadline: number | null;
   masterPlayerId: string | null;
   turnPlayerId: string | null;
-  turnStep: string | null;
   stepDeadline: number | null;
-  question: CmyQuestion | null;
   players: {
     id: string;
     name: string;
@@ -62,6 +53,7 @@ interface CmyState {
   setupTargets: { playerId: string; name: string }[] | null;
 }
 interface CmyYou {
+  ownWord: string | null;
   othersWords: Record<string, string>;
   isMaster: boolean;
 }
@@ -171,6 +163,15 @@ class Client {
       }
     });
   }
+
+  /** forehead: '정답' 버튼 */
+  confirm() {
+    this.s.emit("cmy:confirm");
+  }
+
+  sleep(ms: number) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
 }
 
 function makeRoom(
@@ -208,18 +209,7 @@ function makeRoom(
   );
 }
 
-/** 턴 플레이어가 질문 → 답변자(1인) 답변 → 턴 이동 확인 */
-async function askQuestion(asker: Client, answerer: Client, label: string) {
-  asker.s.emit("cmy:ask", "저는 사람인가요?");
-  await asker.waitState((g) => g.question?.text === "저는 사람인가요?" && g.question.askedBy === g.turnPlayerId);
-  check(true, `${label}: 질문 수신 (askedBy=턴 플레이어)`);
-
-  answerer.s.emit("cmy:answer", "yes");
-  await asker.waitState((g) => g.question === null);
-  check(true, `${label}: 답변 완료 → 턴 이동`);
-}
-
-/** 턴 플레이어의 추정 — 새 규칙: 턴에만 가능, 오답 시 질문 기회 상실(턴 넘김) */
+/** 턴 플레이어의 추정 — 오답 시 질문 기회 상실(턴 넘김) */
 async function doGuess(c: Client, word: string, expectOk: boolean, expectRank?: number, label = "") {
   const lastStamp = c.myGuess?.stamp ?? 0;
   c.s.emit("cmy:guess", word);
@@ -267,14 +257,13 @@ async function main() {
   const wordB = row.words[b];
   check(!!wordA && !!wordB, `단어 배정: A="${wordA}" B="${wordB}"`);
 
-  // 개인화: 서로의 단어만 보이고 본인 것은 안 보임
+  // 개인화: 손 모드는 타인 단어만 (ownWord 없음)
   const youA = await ca.waitYou((v) => !v.isMaster);
   const youB = await cb.waitYou((v) => !v.isMaster);
   check(youA.othersWords[b] === wordB, "A는 B의 단어를 봄 (hand 카드)");
-  check(!youA.othersWords[a], "A는 본인의 단어를 못 봄");
+  check(!youA.othersWords[a] && youA.ownWord === null, "A: 본인 단어 없음 (ownWord null)");
   check(youB.othersWords[a] === wordA, "B는 A의 단어를 봄");
 
-  // 1) 턴 플레이어(first): 비턴 추정 무시 확인 → 오답 → 질문 기회 상실
   const first = ca.state!.turnPlayerId;
   const second = first === a ? b : a;
   const firstC = first === a ? ca : cb;
@@ -282,45 +271,44 @@ async function main() {
   const firstWord = first === a ? wordA : wordB;
   const secondWord = second === a ? wordA : wordB;
 
+  // 1) 비턴 추정 무시
   const staleStampB = secondC.myGuess?.stamp ?? 0;
   secondC.s.emit("cmy:guess", "없는단어_xyz");
-  await new Promise((r) => setTimeout(r, 600));
+  await secondC.sleep(600);
   check(
     secondC.myGuess === null || secondC.myGuess.stamp === staleStampB,
     "비턴 플레이어의 추정 무시 (신규 이벤트 없음)",
   );
 
+  // 2) 턴 플레이어 오답 → 질문 기회 상실 (턴 second로)
   await doGuess(firstC, "없는단어_xyz", false, undefined, "턴1 오답");
   await secondC.waitState((g) => g.turnPlayerId === second);
   check(secondC.state!.turnPlayerId === second, "턴1: 오답 → 질문 기회 상실 (턴 second로)");
 
-  // 2) second: 질문 (턴 소비) → first(미해결) 답변 → 턴 first
-  await askQuestion(secondC, firstC, "턴2");
+  // 3) hand 모드에서는 '정답' 확인 버튼 무시
+  secondC.confirm();
+  await secondC.sleep(500);
+  check(secondC.state!.solvedCount === 0, "hand 모드: cmy:confirm 무시");
 
-  // 3) first: 정답 추정 (질문 대신) rank1 → 턴 second
-  await doGuess(firstC, firstWord, true, 1, "턴3");
-  await firstC.waitState((g) => g.solvedCount === 1);
-  check(firstC.state!.solvedCount === 1, "턴3: 추정 성공 → solvedCount=1");
-  await secondC.waitState((g) => g.turnPlayerId === second);
-  check(secondC.state!.turnPlayerId === second, "턴4: 턴 second (first 해결)");
+  // 4) second: 정답 추정 rank1 → 턴 first
+  await doGuess(secondC, secondWord, true, 1, "턴2");
+  await secondC.waitState((g) => g.solvedCount === 1);
+  check(secondC.state!.solvedCount === 1, "턴2: 추정 성공 → solvedCount=1");
+  await firstC.waitState((g) => g.turnPlayerId === first);
+  check(firstC.state!.turnPlayerId === first, "턴3: 턴 first로 회귀 (second 해결)");
 
-  // 4) second: 질문 → first(해결됨)도 답변 → 턴 second (해결자 스킵)
-  await askQuestion(secondC, firstC, "턴4");
-  await secondC.waitState((g) => g.turnPlayerId === second);
-  check(secondC.state!.turnPlayerId === second, "턴4: 해결자 턴 자동 스킵 → second");
-
-  // 5) second: 정답 추정 rank2 → 전원 해결
-  await doGuess(secondC, secondWord, true, 2, "턴5");
+  // 5) first: 정답 추정 rank2 → 전원 해결
+  await doGuess(firstC, firstWord, true, 2, "턴3");
 
   const result1 = await ca.waitState((g) => g.phase === "result");
   check(result1.phase === "result", "전원 해결 → 결과");
   check(
-    result1.ranking?.[0].playerId === first && result1.ranking?.[0].rank === 1,
-    "1위 = first (먼저 맞춤)",
+    result1.ranking?.[0].playerId === second && result1.ranking?.[0].rank === 1,
+    "1위 = second (먼저 맞춤)",
   );
   check(
-    result1.ranking?.[1].playerId === second && result1.ranking?.[1].rank === 2,
-    "2위 = second",
+    result1.ranking?.[1].playerId === first && result1.ranking?.[1].rank === 2,
+    "2위 = first",
   );
   check(
     result1.players.find((x) => x.id === a)?.word === wordA,
@@ -386,71 +374,47 @@ async function main() {
 
   await cp.waitState((g) => g.phase === "play");
   check(cm.state!.mode === "forehead", "모드: forehead");
-  // 출제자는 전 단어 확인, 참가자는 타인 단어만
+  check(cm.state!.turnPlayerId === null, "forehead: 턴 없음 (turnPlayerId null)");
+
+  // 개인화: 참가자는 내 단어(ownWord) + 타인 단어, 출제자는 전원
   const youM = await cm.waitYou((v) => v.isMaster);
   check(
-    youM.isMaster === true && youM.othersWords[p] === "피자" && youM.othersWords[q] === "고래",
-    "출제자: 전 단어 뷰 (심판)",
+    youM.isMaster === true &&
+      youM.ownWord === null &&
+      youM.othersWords[p] === "피자" &&
+      youM.othersWords[q] === "고래",
+    "출제자: 전 단어 뷰 (심판, ownWord 없음)",
   );
-  const youP = await cp.waitYou((v) => !v.isMaster);
-  check(youP.othersWords[q] === "고래" && !youP.othersWords[p], "참가 P: Q 단어만");
-  const youQ = await cq.waitYou((v) => !v.isMaster);
-  check(youQ.othersWords[p] === "피자" && !youQ.othersWords[q], "참가 Q: P 단어만");
+  const youP = await cp.waitYou((v) => v.ownWord === "피자");
+  check(youP.othersWords[q] === "고래" && !youP.othersWords[p], "참가 P: ownWord=피자 + Q 단어만");
+  const youQ = await cq.waitYou((v) => v.ownWord === "고래");
+  check(youQ.othersWords[p] === "피자" && !youQ.othersWords[q], "참가 Q: ownWord=고래 + P 단어만");
 
-  // 출제자는 답변 불가
-  const turn2 = cm.state!.turnPlayerId;
-  const turnC = turn2 === p ? cp : cq;
-  const otherC = turn2 === p ? cq : cp;
-  turnC.s.emit("cmy:ask", "저는 동물이나요?");
-  await cm.waitState((g) => g.question?.text === "저는 동물이나요?");
-  cm.s.emit("cmy:answer", "yes");
-  await new Promise((r) => setTimeout(r, 400));
-  check(!cm.state!.question?.answers[m], "출제자의 답변은 무시됨");
+  // 카운트다운(3초) 종료 전 확인 불가
+  cp.confirm();
+  await cm.waitState((g) => g.phase === "play");
+  await cm.sleep(300);
+  check(cm.state!.solvedCount === 0, "공개(카운트다운) 전 '정답' 확인 무시");
 
-  // 참가자 답변 → 턴 이동
-  otherC.s.emit("cmy:answer", "no");
-  await cm.waitState((g) => g.question === null);
-  check(true, "참가자 답변 → 턴 이동");
-
-  // 추정: 새 규칙 (턴에만, 오답 시 턴 상실)
-  const t2 = cm.state!.turnPlayerId!;
-  const t2C = t2 === p ? cp : cq;
-  const t2Word = t2 === p ? "피자" : "고래";
-  const t3 = t2 === p ? q : p;
-  const t3C = t3 === p ? cp : cq;
-  const t3Word = t3 === p ? "피자" : "고래";
-
-  // 1) t2(턴): 오답 → 턴 t3로
-  await doGuess(t2C, "없는단어_xyz", false, undefined, "S2 턴1 오답");
-  await t3C.waitState((g) => g.turnPlayerId === t3);
-  check(t3C.state!.turnPlayerId === t3, "S2: 오답 → 질문 기회 상실 (턴 이동)");
-
-  // 2) t3: 질문 (턴 소비) → t2(미해결) 답변 → 턴 t2
-  t3C.s.emit("cmy:ask", "저는 바다에 있나요?");
-  await t3C.waitState((g) => g.question?.text === "저는 바다에 있나요?");
-  t2C.s.emit("cmy:answer", "yes");
-  await t3C.waitState((g) => g.question === null);
-  await t2C.waitState((g) => g.turnPlayerId === t2);
-  check(t2C.state!.turnPlayerId === t2, "S2: 질문 후 턴 t2");
-
-  // 3) t2: 정답 추정 rank1 → 턴 t3
-  await doGuess(t2C, t2Word, true, 1, "S2 턴3");
-  await t2C.waitState((g) => g.solvedCount === 1);
-  check(t2C.state!.solvedCount === 1, "S2: t2 추정 성공");
-
-  // 4) t3: 질문 → t2(해결됨)도 답변 → t2 스킵 → 턴 t3
-  t3C.s.emit("cmy:ask", "저는 사람인가요?");
-  await t3C.waitState((g) => g.question?.text === "저는 사람인가요?");
-  t2C.s.emit("cmy:answer", "yes");
-  await t3C.waitState((g) => g.question === null);
-  await t3C.waitState((g) => g.turnPlayerId === t3);
-  check(t3C.state!.turnPlayerId === t3, "S2: 해결자 턴 스킵 → t3");
-
-  // 5) t3: 정답 추정 rank2 → 전원 해결
-  await doGuess(t3C, t3Word, true, 2, "S2 턴5");
-
+  // 3초 대기 후 확인: P → 1위, Q → 2위 (출제자 확인은 무시)
+  await cm.sleep(3200);
+  cp.confirm();
+  await cm.waitState((g) => g.solvedCount === 1);
+  check(cm.state!.solvedCount === 1, "P 확인 → 1위");
+  cm.confirm();
+  await cm.sleep(300);
+  check(cm.state!.solvedCount === 1, "출제자의 확인 무시");
+  cq.confirm();
   const result2 = await cm.waitState((g) => g.phase === "result");
-  check(result2.phase === "result", "모두 해결 → 결과");
+  check(result2.phase === "result", "전원 확인 → 결과");
+  check(
+    result2.ranking?.[0].playerId === p && result2.ranking?.[0].rank === 1,
+    "1위 = P (먼저 확인)",
+  );
+  check(
+    result2.ranking?.[1].playerId === q && result2.ranking?.[1].rank === 2,
+    "2위 = Q",
+  );
   check(result2.ranking?.every((r) => r.solved) === true, "등수: 전원 solved");
   cm.s.disconnect();
   cp.s.disconnect();

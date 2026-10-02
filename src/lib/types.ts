@@ -12,7 +12,6 @@ export type GameResult = "lyar" | "citizen";
 export type CmyMode = "forehead" | "hand";
 export type CmyWordSource = "random" | "master";
 export type CmyPhase = "setup" | "play" | "result";
-export type CmyAnswer = "yes" | "no" | "skip";
 
 export interface CmyPlayerView {
   id: string;
@@ -23,16 +22,6 @@ export interface CmyPlayerView {
   rank: number | null;
   /** result phase부터: 그 플레이어의 단어 */
   word: string | null;
-}
-
-export interface CmyQuestionView {
-  text: string;
-  askedBy: string;
-  /** 라이브 공개 답변 (원조 룰: 소리 내어 답변) */
-  answers: Record<string, CmyAnswer>;
-  /** 답변 완료 수 / 전체 답변자 수 */
-  answered: number;
-  total: number;
 }
 
 export interface CmyRankingRow {
@@ -53,11 +42,10 @@ export interface CmyGameDTO {
   /** 타이머 ON일 때만 */
   roundDeadline: number | null;
   masterPlayerId: string | null;
-  /** 현재 턴 플레이어 (play) */
+  /** 현재 턴 플레이어 (hand 모드 전용, play) */
   turnPlayerId: string | null;
-  turnStep: "ask" | "answers" | null;
+  /** hand 모드: 턴 마감 (타이머 ON) */
   stepDeadline: number | null;
-  question: CmyQuestionView | null;
   players: CmyPlayerView[];
   solvedCount: number;
   totalCount: number;
@@ -67,9 +55,11 @@ export interface CmyGameDTO {
   setupTargets: { playerId: string; name: string }[] | null;
 }
 
-/** 개인화: 내가 볼 수 있는 다른 플레이어들의 단어 (본인 제외) */
+/** 개인화: 내가 볼 수 있는 단어 (모드별) */
 export interface CmyYouView {
-  /** forehead: 타인 아바타 위 배지 / hand: 내 카드 트레이 (데이터 동일, 표시만 다름) */
+  /** forehead: 내 단어 (전체화면 표시 — 다른 사람에게 보여줌) / hand: null */
+  ownWord: string | null;
+  /** hand: 타인 아바타 카드 트레이 / master: 전원 단어 (본인 제외, 출제자는 전원) */
   othersWords: Record<string, string>;
   isMaster: boolean;
 }
@@ -149,7 +139,7 @@ export const EV = {
   youRole: "you:role",
   /** 투표한 플레이어에게만: 나의 선택 */
   myVote: "my:vote",
-  /** cmy: 개인화 단어 뷰 (타인 단어, 본인 제외) */
+  /** cmy: 개인화 단어 뷰 (forehead: 내 단어 / hand: 타인 단어) */
   youCmyView: "you:cmy-view",
   /** cmy: 내 추정 결과 */
   myCmyGuess: "my:cmy-guess",
@@ -165,12 +155,10 @@ export const C2S = {
   next: "game:next",
   guess: "game:guess",
   newRound: "game:new-round",
-  /** cmy: 현재 턴 플레이어의 질문 */
-  cmyAsk: "cmy:ask",
-  /** cmy: 답변 (yes/no) */
-  cmyAnswer: "cmy:answer",
-  /** cmy: 정답 추정 */
+  /** cmy: 정답 추정 (hand 모드, 턴 플레이어) */
   cmyGuess: "cmy:guess",
+  /** cmy: 정답 확인 (forehead 모드 — 다른 사람이 맞히면 눌러줌) */
+  cmyConfirm: "cmy:confirm",
   /** cmy: 출제자의 단어 제출 (setup) */
   cmyMasterSubmit: "cmy:master-submit",
 } as const;
@@ -183,6 +171,8 @@ export const MAX_PLAYERS = 8;
 export const CMY_MIN_PLAYERS = 2;
 /** master 모드: 참가자 2 + 출제자 1 */
 export const CMY_MIN_PLAYERS_MASTER = 3;
-export const CMY_ASK_SECONDS = 60;
-export const CMY_ANSWER_SECONDS = 30;
+/** hand 모드: 턴 한계 */
+export const CMY_TURN_SECONDS = 60;
+/** forehead 모드: 카운트다운 후 단어 공개 */
+export const CMY_REVEAL_SECONDS = 3;
 export const CMY_ROUND_SECONDS = 180;

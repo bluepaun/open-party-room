@@ -16,9 +16,8 @@ import {
   sweepExpiredTurns,
 } from "../game/lyar";
 import {
-  answerCmyQuestion,
-  askCmyQuestion,
   buildCmyYouView,
+  confirmCmyWord,
   getCmyGameDTO,
   guessCmyWord,
   masterSubmitWords,
@@ -208,20 +207,16 @@ export function setupSocketServer(io: Server) {
 
     /* ── 양세찬 게임 (콜 마이 네임) ── */
 
-    socket.on(C2S.cmyAsk, (text: unknown) => {
-      const game = askCmyQuestion(code, playerId, String(text ?? ""));
-      if (game) emitCmyState(io, code);
-    });
-
-    socket.on(C2S.cmyAnswer, (ans: unknown) => {
-      const a = String(ans ?? "") === "yes" ? ("yes" as const) : ("no" as const);
-      const game = answerCmyQuestion(code, playerId, a);
-      if (game) emitCmyState(io, code);
-    });
-
+    // hand 모드: 턴 플레이어의 정답 추정
     socket.on(C2S.cmyGuess, (word: unknown) => {
       const { game, myGuess } = guessCmyWord(code, playerId, String(word ?? ""));
       if (myGuess) socket.emit(EV.myCmyGuess, myGuess);
+      if (game) emitCmyState(io, code);
+    });
+
+    // forehead 모드: 다른 사람이 내 단어를 맞히면 내가 눌러주는 '정답' 버튼
+    socket.on(C2S.cmyConfirm, () => {
+      const game = confirmCmyWord(code, playerId);
       if (game) emitCmyState(io, code);
     });
 

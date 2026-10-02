@@ -5,13 +5,12 @@ import { cmyGames, players, rooms } from "../db/schema";
 import { getRoomDTO } from "../rooms";
 import { getWordPool } from "./words";
 import {
-  CMY_ANSWER_SECONDS,
-  CMY_ASK_SECONDS,
   CMY_MIN_PLAYERS,
   CMY_MIN_PLAYERS_MASTER,
+  CMY_REVEAL_SECONDS,
   CMY_ROUND_SECONDS,
+  CMY_TURN_SECONDS,
   MAX_PLAYERS,
-  type CmyAnswer,
   type CmyGameDTO,
   type CmyMyGuess,
   type CmyRankingRow,
@@ -19,9 +18,9 @@ import {
   type RoomDTO,
 } from "../types";
 
-const ASK_MS = CMY_ASK_SECONDS * 1000;
-const ANSWER_MS = CMY_ANSWER_SECONDS * 1000;
+const TURN_MS = CMY_TURN_SECONDS * 1000;
 const ROUND_MS = CMY_ROUND_SECONDS * 1000;
+const REVEAL_MS = CMY_REVEAL_SECONDS * 1000;
 
 type CmyRow = NonNullable<ReturnType<typeof getGameRow>>;
 
@@ -87,11 +86,6 @@ export function getCmyGameDTO(code: string): CmyGameDTO | null {
   const ps = participantRows(code, g.order);
   const solvedCount = Object.keys(g.solved).length;
 
-  const totalAnswerers = g.question ? g.order.length - 1 : 0;
-  const answeredCount = g.question
-    ? g.order.filter((pid) => pid !== g.question!.askedBy && g.question!.answers[pid]).length
-    : 0;
-
   return {
     phase: g.phase as CmyGameDTO["phase"],
     mode: g.mode as CmyGameDTO["mode"],
@@ -100,19 +94,9 @@ export function getCmyGameDTO(code: string): CmyGameDTO | null {
     startedAt: g.startedAt,
     roundDeadline: g.phase === "play" ? g.roundDeadline : null,
     masterPlayerId: g.masterPlayerId,
-    turnPlayerId: g.phase === "play" ? (g.order[g.turnIndex] ?? null) : null,
-    turnStep: g.phase === "play" ? (g.question ? "answers" : "ask") : null,
-    stepDeadline: g.phase === "play" ? g.stepDeadline : null,
-    question:
-      g.phase === "play" && g.question
-        ? {
-            text: g.question.text,
-            askedBy: g.question.askedBy,
-            answers: g.question.answers,
-            answered: answeredCount,
-            total: totalAnswerers,
-          }
-        : null,
+    turnPlayerId:
+      g.phase === "play" && g.mode === "hand" ? (g.order[g.turnIndex] ?? null) : null,
+    stepDeadline: g.phase === "play" && g.mode === "hand" ? g.stepDeadline : null,
     players: ps.map((p) => ({
       id: p.id,
       name: p.name,
@@ -147,7 +131,13 @@ function buildRanking(code: string, g: CmyRow): CmyRankingRow[] {
     .sort((a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER));
 }
 
-/** 개인화: 내가 볼 수 있는 타인 단어 (본인 제외). setup에는 없음. */
+/**
+ * 개인화 단어 뷰:
+ * - forehead: ownWord = 내 단어 (전체화면 표시, 다른 사람에게 보여줌)
+ * - hand: othersWords = 타인 단어 (내 카드 트레이)
+ * - master: 전원 단어 (심판 관전)
+ * setup에는 없음.
+ */
 export function buildCmyYouView(code: string, playerId: string): CmyYouView | null {
   const g = getGameRow(code);
   if (!g || g.phase === "setup") return null;
@@ -158,7 +148,8 @@ export function buildCmyYouView(code: string, playerId: string): CmyYouView | nu
     const w = g.words[pid];
     if (w) others[pid] = w;
   }
-  return { othersWords: others, isMaster };
+  const ownWord = !isMaster && g.mode === "forehead" ? (g.words[playerId] ?? null) : null;
+  return { ownWord, othersWords: others, isMaster };
 }
 
 /* ── 시작 ── */
@@ -236,7 +227,8 @@ export function startCmyGame(code: string): CmyStartResult | CmyStartError {
       order: shuffle(participantRows.map((p) => p.id)),
       turnIndex: 0,
       question: null,
-      stepDeadline: phase === "play" && tOn ? now + ASK_MS : null,
+      // hand: 턴 마감 / forehead: 턴 없음
+      stepDeadline: phase === "play" && tOn && mode === "hand" ? now + TURN_MS : null,
       roundDeadline: phase === "play" && tOn ? now + ROUND_MS : null,
       solved: {},
       usedWords: [
@@ -293,7 +285,8 @@ export function masterSubmitWords(
     .set({
       words: Object.fromEntries(g.order.map((pid) => [pid, words[pid].trim()])),
       phase: "play",
-      stepDeadline: tOn ? now + ASK_MS : null,
+      startedAt: now,
+      stepDeadline: tOn && g.mode === "hand" ? now + TURN_MS : null,
       roundDeadline: tOn ? now + ROUND_MS : null,
     })
     .where(eq(cmyGames.id, g.id))
@@ -301,73 +294,11 @@ export function masterSubmitWords(
   return getCmyGameDTO(code) ?? { ok: false, error: "상태를 불러올 수 없어요." };
 }
 
-/* ── play: 질문 ── */
-
-export function askCmyQuestion(
-  code: string,
-  playerId: string,
-  text: string,
-): CmyGameDTO | null {
-  const g = getGameRow(code);
-  if (!g || g.phase !== "play") return null;
-  if (g.order[g.turnIndex] !== playerId) return null;
-  if (g.question !== null) return null;
-  if (g.solved[playerId]) return null;
-  const value = text.trim();
-  if (!value || value.length > 100) return null;
-
-  const tOn = timerOn(g);
-  db.update(cmyGames)
-    .set({
-      question: { text: value, askedBy: playerId, answers: {} },
-      stepDeadline: tOn ? Date.now() + ANSWER_MS : null,
-    })
-    .where(
-      and(
-        eq(cmyGames.id, g.id),
-        eq(cmyGames.phase, "play"),
-        eq(cmyGames.turnIndex, g.turnIndex),
-      ),
-    )
-    .run();
-  return getCmyGameDTO(code);
-}
-
-/* ── play: 답변 ── */
-
-export function answerCmyQuestion(
-  code: string,
-  playerId: string,
-  answer: CmyAnswer,
-): CmyGameDTO | null {
-  const g = getGameRow(code);
-  if (!g || g.phase !== "play" || !g.question) return null;
-  if (playerId === g.question.askedBy) return null;
-  if (!g.order.includes(playerId)) return null;
-  if (answer !== "yes" && answer !== "no") return null;
-  if (g.question.answers[playerId]) return null;
-
-  const answers = { ...g.question.answers, [playerId]: answer };
-  const allAnswered = g.order.every(
-    (pid) => pid === g.question!.askedBy || answers[pid],
-  );
-
-  if (allAnswered) {
-    // 전원 답변 완료 → 즉시 턴 이동 (질문자는 라이브로 봤음)
-    return advanceTurn(code);
-  }
-  db.update(cmyGames)
-    .set({ question: { ...g.question, answers } })
-    .where(eq(cmyGames.id, g.id))
-    .run();
-  return getCmyGameDTO(code);
-}
-
-/* ── play: 턴 진행 (정답 맞힌 사람 스킵, 멱등) ── */
+/* ── play: 턴 진행 (hand 모드, 정답 맞힌 사람 스킵, 멱등) ── */
 
 function advanceTurn(code: string, opts: { requireExpired?: boolean } = {}): CmyGameDTO | null {
   const g = getGameRow(code);
-  if (!g || g.phase !== "play") return null;
+  if (!g || g.phase !== "play" || g.mode !== "hand") return null;
   if (opts.requireExpired && (!g.stepDeadline || g.stepDeadline >= Date.now())) {
     return null;
   }
@@ -383,8 +314,7 @@ function advanceTurn(code: string, opts: { requireExpired?: boolean } = {}): Cmy
     .update(cmyGames)
     .set({
       turnIndex: idx,
-      question: null,
-      stepDeadline: timerOn(g) ? Date.now() + ASK_MS : null,
+      stepDeadline: timerOn(g) ? Date.now() + TURN_MS : null,
     })
     .where(
       and(
@@ -398,7 +328,7 @@ function advanceTurn(code: string, opts: { requireExpired?: boolean } = {}): Cmy
   return getCmyGameDTO(code);
 }
 
-/* ── play: 정답 추정 (자신의 턴에만 — 질문 대신, 실패 시 질문 기회 상실) ── */
+/* ── play: 정답 추정 (hand 모드, 자신의 턴에만, 실패 시 질문 기회 상실) ── */
 
 export function guessCmyWord(
   code: string,
@@ -406,9 +336,11 @@ export function guessCmyWord(
   text: string,
 ): { game: CmyGameDTO | null; myGuess: CmyMyGuess | null } {
   const g = getGameRow(code);
-  if (!g || g.phase !== "play") return { game: null, myGuess: null };
-  // 현재 턴 플레이어만, 질문 대기(ask) 단계에서만 추정 가능
-  if (g.order[g.turnIndex] !== playerId || g.question !== null) {
+  if (!g || g.phase !== "play" || g.mode !== "hand") {
+    return { game: null, myGuess: null };
+  }
+  // 현재 턴 플레이어만 추정 가능
+  if (g.order[g.turnIndex] !== playerId) {
     return { game: getCmyGameDTO(code), myGuess: null };
   }
   if (g.solved[playerId]) {
@@ -427,7 +359,7 @@ export function guessCmyWord(
     db.update(cmyGames)
       .set(
         allSolved
-          ? { solved, phase: "result", question: null, stepDeadline: null, roundDeadline: null }
+          ? { solved, phase: "result", stepDeadline: null, roundDeadline: null }
           : { solved },
       )
       .where(eq(cmyGames.id, g.id))
@@ -443,19 +375,46 @@ export function guessCmyWord(
   return { game: getCmyGameDTO(code), myGuess: { ok: false, rank: null, stamp } };
 }
 
+/* ── play: 정답 확인 (forehead 모드 — 다른 사람이 내 단어를 맞히면 내가 눌러줌) ── */
+
+export function confirmCmyWord(
+  code: string,
+  playerId: string,
+): CmyGameDTO | null {
+  const g = getGameRow(code);
+  if (!g || g.phase !== "play" || g.mode !== "forehead") return null;
+  if (!g.order.includes(playerId) || g.solved[playerId]) return null;
+  // 카운트다운(공개) 종료 전에는 확인 불가
+  if (Date.now() < g.startedAt + REVEAL_MS) return null;
+
+  const rank = Object.keys(g.solved).length + 1;
+  const solved = { ...g.solved, [playerId]: { atMs: Date.now(), rank } };
+  const allSolved = Object.keys(solved).length >= g.order.length;
+
+  db.update(cmyGames)
+    .set(
+      allSolved
+        ? { solved, phase: "result", stepDeadline: null, roundDeadline: null }
+        : { solved },
+    )
+    .where(eq(cmyGames.id, g.id))
+    .run();
+  return getCmyGameDTO(code);
+}
+
 /* ── 종료 ── */
 
 export function finishCmyRound(code: string): CmyGameDTO | null {
   const g = getGameRow(code);
   if (!g || g.phase !== "play") return null;
   db.update(cmyGames)
-    .set({ phase: "result", question: null, stepDeadline: null, roundDeadline: null })
+    .set({ phase: "result", stepDeadline: null, roundDeadline: null })
     .where(and(eq(cmyGames.id, g.id), eq(cmyGames.phase, "play")))
     .run();
   return getCmyGameDTO(code);
 }
 
-/** 타이머 sweep: 질문/답변 타임아웃 + 라운드 만료. */
+/** 타이머 sweep: 라운드 만료 + (hand) 턴 타임아웃. */
 export function sweepCmy(): string[] {
   const now = Date.now();
   const all = db.select().from(cmyGames).where(eq(cmyGames.phase, "play")).all();
@@ -465,26 +424,9 @@ export function sweepCmy(): string[] {
       if (finishCmyRound(g.roomId)) changed.add(g.roomId);
       continue;
     }
-    if (g.stepDeadline !== null && g.stepDeadline < now) {
-      if (g.question === null) {
-        // 질문 타임아웃 → 턴 패스
-        if (advanceTurn(g.roomId, { requireExpired: true })) changed.add(g.roomId);
-      } else {
-        // 답변 타임아웃 → 남은 답변자 skip 처리 후 턴 진행
-        const missing = g.order.filter(
-          (pid) => pid !== g.question!.askedBy && !g.question!.answers[pid],
-        );
-        if (missing.length > 0) {
-          const answers = { ...g.question.answers };
-          for (const pid of missing) answers[pid] = "skip" as const;
-          db.update(cmyGames)
-            .set({ question: { ...g.question, answers } })
-            .where(eq(cmyGames.id, g.id))
-            .run();
-          changed.add(g.roomId);
-        }
-        if (advanceTurn(g.roomId)) changed.add(g.roomId);
-      }
+    if (g.mode === "hand" && g.stepDeadline !== null && g.stepDeadline < now) {
+      // 턴 타임아웃 → 턴 패스
+      if (advanceTurn(g.roomId, { requireExpired: true })) changed.add(g.roomId);
     }
   }
   return [...changed];

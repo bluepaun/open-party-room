@@ -9,8 +9,9 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CMY_REVEAL_SECONDS, type CmyGameDTO, type CmyYouView } from "@/lib/types";
 import { useRoom } from "./socket-context";
-import { Avatar, PulseDot, ProgressBar } from "./shared";
+import { Avatar, PulseDot } from "./shared";
 import { cn } from "cn";
 
 /* ── 라운드 타이머 (MM:SS) — 호출부에서 key로 리마운트 ── */
@@ -33,6 +34,17 @@ function RoundTimer({ endsAt }: { endsAt: number }) {
       {Math.floor(sec / 60)}:{String(sec % 60).padStart(2, "0")}
     </span>
   );
+}
+
+/** 1초 틱 — 카운트다운/턴 타임용 */
+function useNow(active: boolean) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => setNow(Date.now()), 400);
+    return () => clearInterval(t);
+  }, [active]);
+  return now;
 }
 
 /* ════════════════════════════════════════════
@@ -143,105 +155,200 @@ function NopeToast({ stamp }: { stamp: number }) {
   );
 }
 
+/* ── 공유 헤더 (타이머 + 해결 진행률) ── */
+function PlayHeader({ game }: { game: CmyGameDTO }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <p className="text-xs font-semibold tracking-[0.08em] text-muted-foreground">
+        CALL MY NAME · {game.mode === "forehead" ? "이마" : "손"}
+      </p>
+      <div className="flex items-center gap-2.5">
+        {game.timerOn && game.roundDeadline ? (
+          <RoundTimer key={game.roundDeadline} endsAt={game.roundDeadline} />
+        ) : (
+          <span className="text-xs font-semibold text-meta">제한 없음</span>
+        )}
+        <Badge variant="secondary" className="h-6 px-2.5">
+          {game.solvedCount}/{game.totalCount}
+        </Badge>
+      </div>
+    </div>
+  );
+}
+
 /* ════════════════════════════════════════════
-   Play — 질문·답변·추측
+   Play — 이마 모드
+   카운트다운 → 내 단어 전체화면 (다른 사람에게 보여줌)
+   다른 사람이 맞춰 말하면 '정답' 버튼을 눌러 확인
    ════════════════════════════════════════════ */
-function PlayScreen() {
-  const {
-    cmyGame: game,
-    cmyYou: you,
-    cmyMyGuess,
-    meId,
-    cmyAsk,
-    cmyAnswer,
-    cmyGuess,
-  } = useRoom();
-  const [question, setQuestion] = useState("");
-  const [guessOpen, setGuessOpen] = useState(false);
-  const [guess, setGuess] = useState("");
-
-  // 참고: 새 라운드/단계 전환 시 CmyView의 screenKey 변경으로
-  // PlayScreen이 리마운트되어 로컬 상태는 자동 초기화됨.
-
-  if (!game) return null;
-
-  const mode = game.mode;
-  const iAmMaster = game.masterPlayerId === meId;
+function ForeheadPlay({ game, you }: { game: CmyGameDTO; you: CmyYouView | null }) {
+  const { meId, cmyConfirm } = useRoom();
   const me = game.players.find((p) => p.id === meId) ?? null;
   const iSolved = !!me?.solved;
   const myRank = me?.rank ?? null;
-  const q = game.question;
+  const iAmMaster = game.masterPlayerId === meId;
+
+  const revealEndsAt = game.startedAt + CMY_REVEAL_SECONDS * 1000;
+  const now = useNow(true);
+  const revealing = now < revealEndsAt;
+  const countNum = Math.max(1, Math.ceil((revealEndsAt - now) / 1000));
+  const roundSec = game.roundDeadline
+    ? Math.max(0, Math.ceil((game.roundDeadline - now) / 1000))
+    : null;
+
+  /* 출제자(심판): 전체화면 없음 — 관전 카드 */
+  if (iAmMaster || !me) {
+    return (
+      <div className="mx-auto max-w-[620px] px-4 pt-11 pb-24">
+        <PlayHeader game={game} />
+        <h1 className="mt-3 text-2xl font-bold tracking-display">심판 모드</h1>
+        <Card className="mt-5 rounded-2xl p-4">
+          <p className="text-xs text-muted-foreground">
+            출제자라 이 판에는 참여하지 않아요. 전원의 단어를 확인할 수 있어요.
+          </p>
+          <div className="mt-3 flex flex-col gap-2">
+            {game.players.map((p) => (
+              <div
+                key={p.id}
+                className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-background p-2.5"
+              >
+                <Avatar name={p.name} size="sm" />
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                  {p.name}
+                </span>
+                <span className="text-sm font-bold break-all text-right">
+                  {you?.othersWords[p.id] ?? "?"}
+                </span>
+                {p.solved ? (
+                  <Badge className="h-6 bg-foreground px-2 text-xs text-background">
+                    {p.rank}위
+                  </Badge>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex flex-col items-center justify-center bg-foreground px-6 text-background">
+      {/* 상단: 라운드 시간 + 진행률 */}
+      <div className="absolute top-4 right-5 flex items-center gap-3 text-sm font-semibold text-background/70">
+        {roundSec !== null ? (
+          <span className="font-mono tabular-nums">
+            {Math.floor(roundSec / 60)}:{String(roundSec % 60).padStart(2, "0")}
+          </span>
+        ) : (
+          <span className="text-xs">제한 없음</span>
+        )}
+        <span className="font-mono tabular-nums">
+          {game.solvedCount}/{game.totalCount}
+        </span>
+      </div>
+
+      {revealing ? (
+        <>
+          <p className="text-sm font-semibold text-background/60">준비하세요</p>
+          <motion.p
+            key={countNum}
+            initial={{ scale: 1.5, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ duration: 0.3, ease: [0.2, 0, 0, 1] }}
+            className="mt-6 text-[110px] font-bold leading-none tabular-nums"
+          >
+            {countNum}
+          </motion.p>
+        </>
+      ) : (
+        <div className="flex w-full max-w-xl flex-col items-center">
+          <span className="rounded-full border border-background/30 px-4 py-1.5 text-sm font-semibold text-background/80">
+            다른 사람에게 보이게 해주세요
+          </span>
+          <p className="mt-10 text-center text-6xl font-bold tracking-display break-all leading-tight sm:text-7xl">
+            {you?.ownWord ?? ""}
+          </p>
+
+          {/* 하단: 정답 확인 버튼 */}
+          <div className="absolute inset-x-0 bottom-8 px-6">
+            {iSolved ? (
+              <div className="mx-auto max-w-sm rounded-xl border border-background/25 bg-background/10 px-5 py-4 text-center">
+                <p className="text-xl font-bold tracking-display">맞혔어요! 🎉</p>
+                <p className="mt-1 text-sm text-background/70">{myRank}위예요</p>
+              </div>
+            ) : (
+              <Button
+                onClick={cmyConfirm}
+                className="mx-auto block h-14 w-full max-w-sm rounded-xl text-lg font-bold"
+              >
+                정답
+              </Button>
+            )}
+            {!iSolved ? (
+              <p className="mt-2 text-center text-xs text-background/50">
+                다른 사람이 내 단어를 맞춰 말하면 눌러주세요
+              </p>
+            ) : null}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════
+   Play — 손 모드
+   타인 단어 카드 트레이 + 내 차례에 정답만 입력
+   ════════════════════════════════════════════ */
+function HandPlay({ game, you }: { game: CmyGameDTO; you: CmyYouView | null }) {
+  const { cmyMyGuess, meId, cmyGuess } = useRoom();
+  const [guess, setGuess] = useState("");
+
+  const me = game.players.find((p) => p.id === meId) ?? null;
+  const iAmMaster = game.masterPlayerId === meId;
+  const iSolved = !!me?.solved;
+  const myRank = me?.rank ?? null;
   const turnId = game.turnPlayerId;
   const iAmTurn = turnId === meId;
   const turnName = game.players.find((p) => p.id === turnId)?.name ?? "";
-  const askedBy = q
-    ? game.players.find((p) => p.id === q.askedBy)?.name ?? ""
-    : "";
-  const iAmAskedBy = () => (q ? q.askedBy === meId : false);
-  const iAnswered = q ? (q.answers[meId] ?? null) : null;
-
-  const submitQuestion = () => {
-    const value = question.trim();
-    if (!value) return;
-    cmyAsk(value);
-    setQuestion("");
-  };
+  // 턴 타이머 표시용 틱 (턴 플레이어일 때만)
+  const now = useNow(iAmTurn && game.stepDeadline !== null);
+  const turnLeft = game.stepDeadline
+    ? Math.max(0, Math.ceil((game.stepDeadline - now) / 1000))
+    : null;
 
   const submitGuess = () => {
     const value = guess.trim();
     if (!value) return;
     cmyGuess(value);
     setGuess("");
-    setGuessOpen(false);
   };
 
   return (
     <div>
-      {/* 헤더 */}
-      <div className="flex items-baseline justify-between gap-3">
-        <p className="text-xs font-semibold tracking-[0.08em] text-muted-foreground">
-          CALL MY NAME · {mode === "forehead" ? "이마" : "손"}
-        </p>
-        <div className="flex items-center gap-2.5">
-          {game.timerOn && game.roundDeadline ? (
-            <RoundTimer key={game.roundDeadline} endsAt={game.roundDeadline} />
-          ) : (
-            <span className="text-xs font-semibold text-meta">제한 없음</span>
-          )}
-          <Badge variant="secondary" className="h-6 px-2.5">
-            {game.solvedCount}/{game.totalCount}
-          </Badge>
-        </div>
-      </div>
-      <h1 className="mt-3 text-2xl font-bold tracking-display">
-        {q
-          ? `${askedBy}님의 질문`
-          : iAmTurn
-            ? "당신 차례예요!"
-            : `${turnName}님 차례`}
+      <PlayHeader game={game} />
+      <h1 className="mt-3 flex items-baseline gap-2.5 text-2xl font-bold tracking-display">
+        {iAmTurn ? "당신 차례예요!" : `${turnName}님 차례`}
+        {iAmTurn && turnLeft !== null ? (
+          <span className="font-mono text-base font-bold text-primary tabular-nums">
+            {turnLeft}초
+          </span>
+        ) : null}
       </h1>
 
       {/* 플레이어 그리드 */}
       <div className="mt-5 grid grid-cols-2 gap-2.5 sm:gap-3">
         {game.players.map((p) => {
           const isTurn = p.id === turnId && !p.solved;
-          const word = you?.othersWords[p.id] ?? null;
           return (
             <div
               key={p.id}
               className={cn(
-                "relative rounded-xl border border-border/60 bg-background p-3 pt-4",
+                "rounded-xl border border-border/60 bg-background p-3 pt-4",
                 isTurn && "border-foreground bg-surface-warm shadow-[0_0_0_1px_var(--foreground)]",
               )}
             >
-              {mode === "forehead" && word ? (
-                <span
-                  className="absolute -top-2.5 left-1/2 max-w-full -translate-x-1/2 truncate rounded-full border border-border bg-surface-warm px-2.5 py-0.5 text-xs font-bold whitespace-nowrap"
-                  title={word}
-                >
-                  {word}
-                </span>
-              ) : null}
               <div className="flex items-center gap-2">
                 <Avatar name={p.name} size="sm" />
                 <span className="min-w-0 flex-1 truncate text-sm font-semibold">
@@ -256,7 +363,7 @@ function PlayScreen() {
                   </Badge>
                 ) : isTurn ? (
                   <Badge variant="secondary" className="h-6 px-2 text-xs">
-                    {q ? "답변 대기" : "질문 중"}
+                    추정 중
                   </Badge>
                 ) : null}
               </div>
@@ -265,8 +372,8 @@ function PlayScreen() {
         })}
       </div>
 
-      {/* 손 모드: 내 카드 트레이 */}
-      {mode === "hand" && !iAmMaster && me ? (
+      {/* 내 카드 트레이 (타인 단어) */}
+      {!iAmMaster && me ? (
         <div className="mt-6">
           <p className="text-xs font-semibold tracking-[0.08em] text-muted-foreground">
             내 손 카드 {game.totalCount - 1}장
@@ -321,156 +428,38 @@ function PlayScreen() {
         </Card>
       ) : null}
 
-      {/* 내 턴: 질문 입력 */}
-      {iAmTurn && !q && !iAmMaster && !iSolved ? (
-        <div className="mt-5">
-          <Label htmlFor="cmy-question">예/아니오로 답할 수 있는 질문</Label>
+      {/* 내 턴: 정답 입력 (질문 없음) */}
+      {iAmTurn && !iAmMaster && !iSolved ? (
+        <Card className="mt-5 rounded-2xl p-4">
+          <Label htmlFor="cmy-guess">내 단어</Label>
+          <p className="mt-1.5 text-xs text-meta">
+            실패하면 질문 기회 없이 다음 사람 차례로 넘어가요.
+          </p>
           <div className="mt-2 flex gap-2">
             <Input
-              id="cmy-question"
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
+              id="cmy-guess"
+              value={guess}
+              onChange={(e) => setGuess(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") submitQuestion();
+                if (e.key === "Enter") submitGuess();
               }}
-              placeholder="예: 저는 사람인가요?"
-              maxLength={100}
+              placeholder="내 단어"
+              maxLength={30}
               autoComplete="off"
               className="h-12 flex-1 rounded-lg"
             />
             <Button
-              onClick={submitQuestion}
-              disabled={!question.trim()}
+              onClick={submitGuess}
+              disabled={!guess.trim()}
               className="h-12 w-28 flex-none rounded-lg"
             >
-              질문하기
+              외치기!
             </Button>
           </div>
-          <p className="mt-1.5 text-xs text-meta">또는 정답을 외칠 수 있어요.</p>
-        </div>
-      ) : null}
-
-      {/* 진행 중인 질문 */}
-      {q ? (
-        <Card className="mt-5 rounded-2xl p-4">
-          <div className="flex items-center justify-between gap-3">
-            <span className="truncate text-xs font-semibold text-muted-foreground">
-              {askedBy}님의 질문
-            </span>
-            <span className="font-mono text-xs text-muted-foreground tabular-nums">
-              {q.answered}/{q.total} 답변
-            </span>
-          </div>
-          <p className="mt-1.5 text-lg font-bold break-words">“{q.text}”</p>
-          <ProgressBar value={q.total ? q.answered / q.total : 0} className="mt-3" />
-
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {game.players
-              .filter((p) => p.id !== q.askedBy)
-              .map((p) => {
-                const a = q.answers[p.id];
-                return (
-                  <span
-                    key={p.id}
-                    className={cn(
-                      "rounded-full border px-2.5 py-1 text-xs font-semibold",
-                      a === "yes" && "border-foreground bg-foreground text-background",
-                      a === "no" && "border-border bg-surface-warm text-foreground",
-                      a === "skip" && "border-border text-meta",
-                      !a && "border-border/60 text-meta",
-                    )}
-                  >
-                    {p.name}
-                    {a === "yes" ? " 예" : a === "no" ? " 아니요" : a === "skip" ? " 패스" : " …"}
-                  </span>
-                );
-              })}
-          </div>
-
-          {!iAmAskedBy() && !iAmMaster && me ? (
-            iAnswered ? (
-              <p className="mt-3.5 text-sm text-muted-foreground">
-                내 답변:{" "}
-                <b className="text-foreground">
-                  {iAnswered === "yes" ? "예" : iAnswered === "no" ? "아니요" : "—"}
-                </b>
-              </p>
-            ) : (
-              <div className="mt-3.5 grid grid-cols-2 gap-2.5">
-                <Button
-                  variant="outline"
-                  className="h-13 rounded-lg text-lg font-bold"
-                  onClick={() => cmyAnswer("yes")}
-                >
-                  예
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-13 rounded-lg text-lg font-bold"
-                  onClick={() => cmyAnswer("no")}
-                >
-                  아니요
-                </Button>
-              </div>
-            )
-          ) : null}
         </Card>
       ) : null}
 
-      {/* 정답 외치기 — 내 턴에만 (질문 대신), 실패 시 질문 기회 상실 */}
-      {iAmTurn && !q && !iAmMaster && !iSolved ? (
-        <div className="mt-3">
-          {guessOpen ? (
-            <Card className="rounded-2xl p-4">
-              <Label htmlFor="cmy-guess">정답 외치기 — 내 단어</Label>
-              <p className="mt-1.5 text-xs text-meta">
-                실패하면 질문 기회 없이 다음 사람 차례로 넘어가요.
-              </p>
-              <div className="mt-2 flex gap-2">
-                <Input
-                  id="cmy-guess"
-                  value={guess}
-                  onChange={(e) => setGuess(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") submitGuess();
-                  }}
-                  placeholder="내 단어"
-                  maxLength={30}
-                  autoComplete="off"
-                  className="h-12 flex-1 rounded-lg"
-                />
-                <Button
-                  onClick={submitGuess}
-                  disabled={!guess.trim()}
-                  className="h-12 w-28 flex-none rounded-lg"
-                >
-                  외치기!
-                </Button>
-              </div>
-              <Button
-                variant="ghost"
-                className="mt-1.5 h-9 w-full text-sm text-muted-foreground"
-                onClick={() => {
-                  setGuessOpen(false);
-                  setGuess("");
-                }}
-              >
-                취소
-              </Button>
-            </Card>
-          ) : (
-            <Button
-              variant="outline"
-              className="h-12 w-full rounded-lg text-base"
-              onClick={() => setGuessOpen(true)}
-            >
-              내 단어를 알아냈어요!
-            </Button>
-          )}
-        </div>
-      ) : null}
-
-      {/* 오답 플래시 (페널티 없음 — 토스트만) */}
+      {/* 오답 토스트 */}
       <AnimatePresence>
         {cmyMyGuess && !cmyMyGuess.ok ? (
           <NopeToast key={cmyMyGuess.stamp} stamp={cmyMyGuess.stamp} />
@@ -596,7 +585,7 @@ function ResultScreen({ onLobby }: { onLobby: () => void }) {
    CmyView — 스크린 전환
    ════════════════════════════════════════════ */
 export function CmyView({ onLobby }: { onLobby: () => void }) {
-  const { room, cmyGame: game } = useRoom();
+  const { room, cmyGame: game, cmyYou: you } = useRoom();
 
   if (!room || !game) {
     return (
@@ -608,6 +597,11 @@ export function CmyView({ onLobby }: { onLobby: () => void }) {
   }
 
   const screenKey = `${game.startedAt}-${game.phase}`;
+
+  // 이마 모드 + play + 참가자: 전체화면 (오버레이) — 컨테이너 없이 렌더
+  if (game.phase === "play" && game.mode === "forehead") {
+    return <ForeheadPlay game={game} you={you} />;
+  }
 
   return (
     <div className="mx-auto max-w-[620px] px-4 pt-11 pb-24">
@@ -622,7 +616,7 @@ export function CmyView({ onLobby }: { onLobby: () => void }) {
           {game.phase === "setup" ? (
             <SetupScreen />
           ) : game.phase === "play" ? (
-            <PlayScreen />
+            <HandPlay game={game} you={you} />
           ) : (
             <ResultScreen onLobby={onLobby} />
           )}
