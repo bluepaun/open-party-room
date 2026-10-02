@@ -1,12 +1,25 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { TopNav, PageFoot } from "@/components/top-nav";
 
-const games = [
+interface GameCard {
+  id: string;
+  no: string;
+  word: string;
+  title: string;
+  spec: string;
+  playable: boolean;
+  href: string;
+  cta: string;
+  cover: string | null;
+}
+
+const games: GameCard[] = [
   {
     id: "lyar",
     no: "GAME 01",
@@ -16,6 +29,7 @@ const games = [
     playable: true,
     href: "/rooms/create",
     cta: "방 만들기",
+    cover: "/images/liar-cover.png",
   },
   {
     id: "whisper",
@@ -26,6 +40,7 @@ const games = [
     playable: false,
     href: "",
     cta: "준비 중",
+    cover: null,
   },
   {
     id: "mafia",
@@ -36,6 +51,7 @@ const games = [
     playable: false,
     href: "",
     cta: "준비 중",
+    cover: null,
   },
 ];
 
@@ -88,7 +104,20 @@ export default function HomePage() {
                 }}
                 className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card"
               >
-                {g.playable ? (
+                {g.cover ? (
+                  <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden bg-surface-warm">
+                    <Image
+                      src={g.cover}
+                      alt={`${g.title} 표지`}
+                      fill
+                      sizes="(min-width: 1024px) 33vw, (min-width: 768px) 50vw, 100vw"
+                      className="object-contain p-3"
+                    />
+                    <span className="absolute top-3.5 left-4 font-mono text-xs font-semibold tracking-[0.18em] text-muted-foreground">
+                      {g.no}
+                    </span>
+                  </div>
+                ) : g.playable ? (
                   <div
                     aria-hidden="true"
                     className="flex aspect-[4/3] flex-col justify-between bg-foreground p-5 text-background"
