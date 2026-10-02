@@ -37,7 +37,8 @@ const games: GameCard[] = [
     spec: "2–8명 · 이마/손",
     href: "/rooms/create?game=cmy",
     cta: "방 만들기",
-    cover: null,
+    // © irasutoya (https://www.irasutoya.com/2014/08/blog-post_14.html) — free license
+    cover: "/images/cmy-cover.png",
   },
 ];
 
