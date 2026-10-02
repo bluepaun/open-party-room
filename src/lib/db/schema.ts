@@ -18,7 +18,7 @@ export const rooms = sqliteTable("rooms", {
   /** 'cmy' 방 설정: 출제자 플레이어 id (master 모드, 이 판 참여 불가) */
   cmyMasterPlayerId: text("cmy_master_player_id"),
   /** 'cmy' 방 설정: 'on' | 'off' */
-  cmyTimer: text("cmy_timer").default("on"),
+  cmyTimer: text("cmy_timer").default("off"),
   createdAt: integer("created_at").notNull(),
 });
 

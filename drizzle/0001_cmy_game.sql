@@ -21,4 +21,4 @@ CREATE UNIQUE INDEX `cmy_games_room_unique` ON `cmy_games` (`room_id`);--> state
 ALTER TABLE `rooms` ADD `cmy_mode` text DEFAULT 'forehead';--> statement-breakpoint
 ALTER TABLE `rooms` ADD `cmy_word_source` text DEFAULT 'random';--> statement-breakpoint
 ALTER TABLE `rooms` ADD `cmy_master_player_id` text;--> statement-breakpoint
-ALTER TABLE `rooms` ADD `cmy_timer` text DEFAULT 'on';
+ALTER TABLE `rooms` ADD `cmy_timer` text DEFAULT 'off';

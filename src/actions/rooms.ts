@@ -81,6 +81,8 @@ export async function createRoom(
       hostPlayerId: playerId,
       status: "lobby",
       createdAt: now,
+      // cmy 타이머 기본값: OFF (제한 없음)
+      cmyTimer: "off",
     })
     .run();
   db.insert(players).values({ id: playerId, roomId: code, name: hostName, joinedAt: now }).run();

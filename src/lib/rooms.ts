@@ -49,7 +49,7 @@ export function getRoomDTO(code: string): RoomDTO | null {
     cmyMode: (room.cmyMode ?? "forehead") as RoomDTO["cmyMode"],
     cmyWordSource: (room.cmyWordSource ?? "random") as RoomDTO["cmyWordSource"],
     cmyMasterPlayerId: room.cmyMasterPlayerId ?? null,
-    cmyTimer: (room.cmyTimer ?? "on") as RoomDTO["cmyTimer"],
+    cmyTimer: (room.cmyTimer ?? "off") as RoomDTO["cmyTimer"],
     players: listPlayers(code),
   };
 }

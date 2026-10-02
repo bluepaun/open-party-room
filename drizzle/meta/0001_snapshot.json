@@ -426,7 +426,7 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false,
-          "default": "'on'"
+          "default": "'off'"
         },
         "created_at": {
           "name": "created_at",

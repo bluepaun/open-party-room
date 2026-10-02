@@ -45,7 +45,7 @@ function shuffle<T>(arr: T[]): T[] {
 
 function timerOn(g: CmyRow): boolean {
   const room = db.select().from(rooms).where(eq(rooms.code, g.roomId)).get();
-  return (room?.cmyTimer ?? "on") === "on";
+  return (room?.cmyTimer ?? "off") === "on";
 }
 
 /** 풀에서 usedWords 제외하고 n개 고유 추출 (풀 부족 시 재사용 허용) */
@@ -180,7 +180,7 @@ export function startCmyGame(code: string): CmyStartResult | CmyStartError {
   const mode = (room.cmyMode ?? "forehead") as "forehead" | "hand";
   const wordSource = (room.cmyWordSource ?? "random") as "random" | "master";
   const masterId = room.cmyMasterPlayerId ?? null;
-  const tOn = (room.cmyTimer ?? "on") === "on";
+  const tOn = (room.cmyTimer ?? "off") === "on";
 
   let participantRows: typeof playerRows;
   if (wordSource === "master") {
@@ -279,7 +279,7 @@ export function masterSubmitWords(
     normSeen.add(norm(w));
   }
 
-  const tOn = (db.select().from(rooms).where(eq(rooms.code, code)).get()?.cmyTimer ?? "on") === "on";
+  const tOn = (db.select().from(rooms).where(eq(rooms.code, code)).get()?.cmyTimer ?? "off") === "on";
   const now = Date.now();
   db.update(cmyGames)
     .set({
