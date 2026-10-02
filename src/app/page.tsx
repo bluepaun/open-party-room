@@ -77,9 +77,6 @@ export default function HomePage() {
                 오늘 할 게임을 고르세요
               </h1>
             </div>
-            <Badge variant="outline" className="h-6 px-2.5">
-              3–8명 · 기기 1대 이상
-            </Badge>
           </div>
 
           <motion.div
