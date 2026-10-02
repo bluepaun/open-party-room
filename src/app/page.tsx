@@ -64,28 +64,6 @@ export default function HomePage() {
                 오늘 할 게임을 고르세요
               </h1>
           </div>
-          <a
-            href="https://github.com/bluepaun/open-party-room"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <svg
-              aria-hidden="true"
-              className="size-4"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="18" cy="18" r="3" />
-              <circle cx="6" cy="6" r="3" />
-              <path d="M6 21V9a9 9 0 0 0 9 9" />
-            </svg>
-            GitHub
-          </a>
           </div>
 
           <motion.div
