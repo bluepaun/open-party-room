@@ -32,7 +32,7 @@ export function CreateRoomForm() {
             </Badge>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            3–8명 · 5–10분 · 말하기 추리
+            3명 이상 · 말하기 추리
           </p>
         </div>
       </Card>

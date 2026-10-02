@@ -104,7 +104,7 @@ export function LobbyView({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
               플레이어 <span className="font-mono text-meta">{room.players.length}명</span>
             </h2>
             <Badge variant="outline" className="h-6 px-2.5">
-              3–8명
+              3명 이상
             </Badge>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -186,7 +186,7 @@ export function LobbyView({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
           <div className="min-w-0">
             <h2 className="text-lg font-bold tracking-[-0.01em]">라이어 게임</h2>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              3–8명 · 5–10분 · 제시어 1개
+              3명 이상 · 제시어 1개
             </p>
           </div>
         </div>

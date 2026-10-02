@@ -25,7 +25,7 @@ const games: GameCard[] = [
     no: "GAME 01",
     word: "라이어",
     title: "라이어 게임",
-    spec: "3–8명 · 5–10분",
+    spec: "3명 이상",
     playable: true,
     href: "/rooms/create",
     cta: "방 만들기",
