@@ -398,7 +398,7 @@ function advanceTurn(code: string, opts: { requireExpired?: boolean } = {}): Cmy
   return getCmyGameDTO(code);
 }
 
-/* ── play: 정답 추정 ── */
+/* ── play: 정답 추정 (자신의 턴에만 — 질문 대신, 실패 시 질문 기회 상실) ── */
 
 export function guessCmyWord(
   code: string,
@@ -407,7 +407,11 @@ export function guessCmyWord(
 ): { game: CmyGameDTO | null; myGuess: CmyMyGuess | null } {
   const g = getGameRow(code);
   if (!g || g.phase !== "play") return { game: null, myGuess: null };
-  if (!g.order.includes(playerId) || g.solved[playerId]) {
+  // 현재 턴 플레이어만, 질문 대기(ask) 단계에서만 추정 가능
+  if (g.order[g.turnIndex] !== playerId || g.question !== null) {
+    return { game: getCmyGameDTO(code), myGuess: null };
+  }
+  if (g.solved[playerId]) {
     return { game: getCmyGameDTO(code), myGuess: null };
   }
   const value = text.trim();
@@ -429,12 +433,13 @@ export function guessCmyWord(
       .where(eq(cmyGames.id, g.id))
       .run();
 
-    if (!allSolved && g.order[g.turnIndex] === playerId) {
+    if (!allSolved) {
       advanceTurn(code); // 맞힌 사람의 턴은 패스
     }
     return { game: getCmyGameDTO(code), myGuess: { ok: true, rank, stamp } };
   }
-  // 오답: 페널티 없음 — 토스트만
+  // 오답: 질문 기회 상실 — 턴이 다음으로 넘어감
+  advanceTurn(code);
   return { game: getCmyGameDTO(code), myGuess: { ok: false, rank: null, stamp } };
 }
 

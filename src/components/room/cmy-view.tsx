@@ -138,7 +138,7 @@ function NopeToast({ stamp }: { stamp: number }) {
       transition={{ duration: 0.18 }}
       className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full bg-foreground px-4.5 py-2.5 text-sm font-bold text-background shadow-lg"
     >
-      아직 아니에요!
+      아직 아니에요! 다음 사람 차례
     </motion.div>
   );
 }
@@ -346,6 +346,7 @@ function PlayScreen() {
               질문하기
             </Button>
           </div>
+          <p className="mt-1.5 text-xs text-meta">또는 정답을 외칠 수 있어요.</p>
         </div>
       ) : null}
 
@@ -416,12 +417,15 @@ function PlayScreen() {
         </Card>
       ) : null}
 
-      {/* 정답 외치기 */}
-      {!iAmMaster && me && !iSolved ? (
-        <div className="mt-5">
+      {/* 정답 외치기 — 내 턴에만 (질문 대신), 실패 시 질문 기회 상실 */}
+      {iAmTurn && !q && !iAmMaster && !iSolved ? (
+        <div className="mt-3">
           {guessOpen ? (
             <Card className="rounded-2xl p-4">
               <Label htmlFor="cmy-guess">정답 외치기 — 내 단어</Label>
+              <p className="mt-1.5 text-xs text-meta">
+                실패하면 질문 기회 없이 다음 사람 차례로 넘어가요.
+              </p>
               <div className="mt-2 flex gap-2">
                 <Input
                   id="cmy-guess"

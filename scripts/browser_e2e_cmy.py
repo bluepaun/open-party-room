@@ -150,8 +150,11 @@ def main():
             log(f"이마 배지: {me}는 타인 단어 {others} 확인")
         shot(host.page, "05-forehead-badges")
 
-        # ── 7. 턴 루프: 질문 → 답변 → 추정 (전원 해결까지) ──
+        # ── 7. 턴 루프: 1턴 = 질문 또는 추정 (택1) — 전원 해결까지 ──
+        # 각 플레이어: 오답 추정 1회(턴 상실) → 질문 1회(턴 소비) → 정답 추정 1회
         solved = set()
+        wrongGuessed = set()
+        asked = set()
         while len(solved) < 3:
             # 턴 플레이어 찾기 (h1 "당신 차례예요!")
             turn_key = None
@@ -165,30 +168,42 @@ def main():
             assert turn_key, f"턴 플레이어 미발견 (solved={solved})"
             turn = devices[turn_key]
             turn_name = names[turn_key]
-            log(f"턴: {turn_name}")
 
-            # 질문 입력
-            turn.page.fill("#cmy-question", "저는 사람인가요?")
-            turn.page.click('button:has-text("질문하기")')
-            turn.wait(600)
-            shot(turn.page, f"06-question-{turn_name}")
+            if turn_key not in wrongGuessed:
+                # 1) 오답 추정 → "아직 아니에요!" 토스트 → 질문 기회 상실
+                turn.page.click('button:has-text("내 단어를 알아냈어요!")')
+                turn.page.fill("#cmy-guess", "없는 단어 xyz")
+                turn.page.click('button:has-text("외치기!")')
+                turn.page.wait_for_selector("text=아직 아니에요!", timeout=10000)
+                wrongGuessed.add(turn_key)
+                log(f"오답: {turn_name} → 턴 상실 (다음 사람 차례)")
+                for d in devices.values():
+                    d.wait(800)
+                continue
 
-            # 다른 2명 답변 ("아니요")
-            for key, d in devices.items():
-                if key == turn_key:
-                    continue
-                btn = d.page.locator('button:has-text("아니요")')
-                assert btn.count() > 0, f"{names[key]}: 답변 버튼 없음"
-                btn.click()
-            turn.wait(1200)
+            if turn_key not in asked:
+                # 2) 질문 (턴 소비) → 다른 전원이 답변
+                log(f"턴: {turn_name} (질문)")
+                turn.page.fill("#cmy-question", "저는 사람인가요?")
+                turn.page.click('button:has-text("질문하기")')
+                turn.wait(600)
+                shot(turn.page, f"06-question-{turn_name}")
+                for key, d in devices.items():
+                    if key == turn_key:
+                        continue
+                    d.page.locator('button:has-text("아니요")').click()
+                asked.add(turn_key)
+                for d in devices.values():
+                    d.wait(1000)
+                continue
 
-            # 턴 플레이어 추정 (내 단어)
+            # 3) 정답 추정 (질문 대신) → 해결
+            log(f"턴: {turn_name} (추정)")
             turn.page.click('button:has-text("내 단어를 알아냈어요!")')
             turn.page.fill("#cmy-guess", word_by_name[turn_name])
             turn.page.click('button:has-text("외치기!")')
             turn.wait(1500)
-            t = turn.main_text()
-            assert "맞혔어요" in t, f"{turn_name}: 추정 성공 배너 없음"
+            assert "맞혔어요" in turn.main_text(), f"{turn_name}: 추정 성공 배너 없음"
             solved.add(turn_key)
             log(f"추정 성공: {turn_name} ({len(solved)}/3)")
             for d in devices.values():
