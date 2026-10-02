@@ -173,6 +173,6 @@ export const CMY_MIN_PLAYERS = 2;
 export const CMY_MIN_PLAYERS_MASTER = 3;
 /** hand 모드: 턴 한계 */
 export const CMY_TURN_SECONDS = 60;
-/** forehead 모드: 카운트다운 후 단어 공개 */
-export const CMY_REVEAL_SECONDS = 3;
+/** forehead 모드: 카운트다운(전원 화면 공개 안내) 후 단어 공개 */
+export const CMY_REVEAL_SECONDS = 10;
 export const CMY_ROUND_SECONDS = 180;

@@ -100,11 +100,15 @@ def main():
 
         # ── 5. 1라운드 (이마): 시작 ──
         host.page.click('button:has-text("게임 시작")')
-        host.wait(700)
-        shot(host.page, "04-countdown")
-        # 카운트다운 → "다른 사람에게 보이게 해주세요" (3초)
+        host.wait(1200)
+        # 카운트다운(10초): 대형 안내 문구 표시 확인
         for d in devices.values():
-            d.page.wait_for_selector("text=다른 사람에게 보이게 해주세요", timeout=15000)
+            d.page.wait_for_selector("text=보여 주세요", timeout=10000)
+        shot(host.page, "04-countdown")
+        log("이마: 카운트다운 화면 '다른 사람에게 보여 주세요' 확인")
+        # 카운트다운 종료 → "다른 사람에게 보이게 해주세요" + 단어
+        for d in devices.values():
+            d.page.wait_for_selector("text=다른 사람에게 보이게 해주세요", timeout=20000)
         log("이마: 3기기 모두 공개 화면 진입 (카운트다운 종료)")
         host.wait(400)
 

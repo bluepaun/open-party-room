@@ -249,18 +249,27 @@ function ForeheadPlay({ game, you }: { game: CmyGameDTO; you: CmyYouView | null 
       </div>
 
       {revealing ? (
-        <>
-          <p className="text-sm font-semibold text-background/60">준비하세요</p>
+        <div className="flex w-full max-w-3xl flex-col items-center px-4">
+          <motion.p
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: [0.2, 0, 0, 1] }}
+            className="text-center text-4xl font-bold tracking-display leading-snug sm:text-5xl"
+          >
+            다른 사람에게
+            <br />
+            보여 주세요
+          </motion.p>
           <motion.p
             key={countNum}
-            initial={{ scale: 1.5, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ duration: 0.3, ease: [0.2, 0, 0, 1] }}
-            className="mt-6 text-[110px] font-bold leading-none tabular-nums"
+            initial={{ scale: 1.15 }}
+            animate={{ scale: 1 }}
+            transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
+            className="mt-8 text-[120px] font-bold leading-none tabular-nums text-primary"
           >
             {countNum}
           </motion.p>
-        </>
+        </div>
       ) : (
         <div className="flex w-full max-w-xl flex-col items-center">
           <span className="rounded-full border border-background/30 px-4 py-1.5 text-sm font-semibold text-background/80">

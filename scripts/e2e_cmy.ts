@@ -390,14 +390,14 @@ async function main() {
   const youQ = await cq.waitYou((v) => v.ownWord === "고래");
   check(youQ.othersWords[p] === "피자" && !youQ.othersWords[q], "참가 Q: ownWord=고래 + P 단어만");
 
-  // 카운트다운(3초) 종료 전 확인 불가
+  // 카운트다운(10초) 종료 전 확인 불가
   cp.confirm();
   await cm.waitState((g) => g.phase === "play");
   await cm.sleep(300);
   check(cm.state!.solvedCount === 0, "공개(카운트다운) 전 '정답' 확인 무시");
 
-  // 3초 대기 후 확인: P → 1위, Q → 2위 (출제자 확인은 무시)
-  await cm.sleep(3200);
+  // 10초 카운트다운 대기 후 확인: P → 1위, Q → 2위 (출제자 확인은 무시)
+  await cm.sleep(10500);
   cp.confirm();
   await cm.waitState((g) => g.solvedCount === 1);
   check(cm.state!.solvedCount === 1, "P 확인 → 1위");
