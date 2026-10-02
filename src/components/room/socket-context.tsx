@@ -11,7 +11,11 @@ import {
 } from "react";
 import { io, type Socket } from "socket.io-client";
 import {
+  C2S,
   EV,
+  type CmyGameDTO,
+  type CmyMyGuess,
+  type CmyYouView,
   type GameDTO,
   type RoomDTO,
   type YouRoleDTO,
@@ -27,6 +31,10 @@ interface RoomContextValue {
   game: GameDTO | null;
   you: YouRoleDTO | null;
   myVote: string | null;
+  /** 양세찬 게임 */
+  cmyGame: CmyGameDTO | null;
+  cmyYou: CmyYouView | null;
+  cmyMyGuess: CmyMyGuess | null;
   connected: boolean;
   /** 소켓 인증 실패 (플레이어/방 없음) */
   authFailed: boolean;
@@ -41,6 +49,10 @@ interface RoomContextValue {
   vote: (targetId: string) => void;
   next: () => void;
   submitGuess: (word: string) => void;
+  cmyAsk: (text: string) => void;
+  cmyAnswer: (a: "yes" | "no") => void;
+  cmyGuess: (word: string) => void;
+  cmyMasterSubmit: (words: Record<string, string>) => Promise<AckResult>;
 }
 
 const RoomContext = createContext<RoomContextValue | null>(null);
@@ -66,6 +78,9 @@ export function RoomProvider({
   const [game, setGame] = useState<GameDTO | null>(null);
   const [you, setYou] = useState<YouRoleDTO | null>(null);
   const [myVote, setMyVote] = useState<string | null>(null);
+  const [cmyGame, setCmyGame] = useState<CmyGameDTO | null>(null);
+  const [cmyYou, setCmyYou] = useState<CmyYouView | null>(null);
+  const [cmyMyGuess, setCmyMyGuess] = useState<CmyMyGuess | null>(null);
   const [connected, setConnected] = useState(false);
   const [authFailed, setAuthFailed] = useState(false);
   const [roomClosed, setRoomClosed] = useState(false);
@@ -86,7 +101,11 @@ export function RoomProvider({
     socket.on(EV.roomState, (r: RoomDTO) => {
       setRoom(r);
       // 라운드 초기화(게임 중 이탈) 시 게임 상태도 비워줌
-      if (r.status === "lobby") setGame(null);
+      if (r.status === "lobby") {
+        setGame(null);
+        setCmyGame(null);
+        setCmyYou(null);
+      }
     });
     socket.on(EV.gameState, (g: GameDTO) => {
       // 새 라운드 진입(startedAt 변화) 시 "투표함" 표시 초기화 —
@@ -100,6 +119,9 @@ export function RoomProvider({
     });
     socket.on(EV.youRole, (y: YouRoleDTO) => setYou(y));
     socket.on(EV.myVote, (v: { targetId: string }) => setMyVote(v.targetId));
+    socket.on(EV.cmyState, (g: CmyGameDTO) => setCmyGame(g));
+    socket.on(EV.youCmyView, (v: CmyYouView) => setCmyYou(v));
+    socket.on(EV.myCmyGuess, (g: CmyMyGuess) => setCmyMyGuess(g));
     socket.on(EV.roomClosed, () => {
       setRoomClosed(true);
       setRoom(null);
@@ -155,8 +177,26 @@ export function RoomProvider({
     socketRef.current?.emit("game:next");
   }, []);
   const submitGuess = useCallback((word: string) => {
-    socketRef.current?.emit("game:guess", word);
+    socketRef.current?.emit(C2S.guess, word);
   }, []);
+  const cmyAsk = useCallback((text: string) => {
+    socketRef.current?.emit(C2S.cmyAsk, text);
+  }, []);
+  const cmyAnswer = useCallback((a: "yes" | "no") => {
+    socketRef.current?.emit(C2S.cmyAnswer, a);
+  }, []);
+  const cmyGuess = useCallback((word: string) => {
+    socketRef.current?.emit(C2S.cmyGuess, word);
+  }, []);
+  const cmyMasterSubmit = useCallback(
+    (words: Record<string, string>) =>
+      new Promise<AckResult>((resolve) => {
+        socketRef.current?.timeout(5000).emit(C2S.cmyMasterSubmit, words, (err: Error | null, res?: AckResult) => {
+          resolve(err ? { ok: false, error: "서버에 연결할 수 없어요." } : (res ?? { ok: true }));
+        });
+      }),
+    [],
+  );
 
   const value = useMemo<RoomContextValue>(
     () => ({
@@ -164,6 +204,9 @@ export function RoomProvider({
       game,
       you,
       myVote,
+      cmyGame,
+      cmyYou,
+      cmyMyGuess,
       connected,
       authFailed,
       roomClosed,
@@ -177,11 +220,15 @@ export function RoomProvider({
       vote,
       next,
       submitGuess,
+      cmyAsk,
+      cmyAnswer,
+      cmyGuess,
+      cmyMasterSubmit,
     }),
     [
-      room, game, you, myVote, connected, authFailed, roomClosed,
+      room, game, you, myVote, cmyGame, cmyYou, cmyMyGuess, connected, authFailed, roomClosed,
       playerId, name, startGame, newRound, confirmReveal, explainDone,
-      vote, next, submitGuess,
+      vote, next, submitGuess, cmyAsk, cmyAnswer, cmyGuess, cmyMasterSubmit,
     ],
   );
 

@@ -4,16 +4,27 @@ import { useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { ChevronDown } from "lucide-react";
-import { leaveRoom, closeRoom, setWordGroup } from "@/actions/rooms";
+import {
+  leaveRoom,
+  closeRoom,
+  setWordGroup,
+  setGameSettings,
+  type CmySettingsPatch,
+} from "@/actions/rooms";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useRoom } from "./socket-context";
 import { Avatar, CopyCodeButton, PulseDot } from "./shared";
-import { MIN_PLAYERS } from "@/lib/types";
+import { cn } from "cn";
+import {
+  CMY_MIN_PLAYERS,
+  CMY_MIN_PLAYERS_MASTER,
+  MIN_PLAYERS,
+} from "@/lib/types";
 import type { WordGroupDTO } from "@/lib/game/words";
 
-const RULES: { bold: string; text: string }[] = [
+const RULES_LYAR: { bold: string; text: string }[] = [
   { bold: "한 명", text: "플레이어 중 한 명이 라이어로 랜덤하게 정해져요." },
   { bold: "라이어만", text: "제시어를 몰라요 — 나머지 플레이어는 제시어를 확인해요." },
   { bold: "60초", text: "순서대로 60초씩 제시어를 설명해요. 라이어는 자연스럽게 속이세요." },
@@ -24,21 +35,97 @@ const RULES: { bold: string; text: string }[] = [
   },
 ];
 
+const RULES_CMY: { bold: string; text: string }[] = [
+  {
+    bold: "각자 단어",
+    text: "내 제시어는 숨겨지고, 다른 모든 플레이어의 제시어는 내게 보여요.",
+  },
+  {
+    bold: "질문",
+    text: "순서대로 예/아니오로 답할 수 있는 질문을 하나 해요. 다른 전원이 사실대로 답해요.",
+  },
+  {
+    bold: "추측",
+    text: "언제든 내 단어를 외칠 수 있어요. 가장 빠르게 맞힌 순서로 1, 2, 3위!",
+  },
+  {
+    bold: "",
+    text: "끝까지 못 맞힌 사람은 꼴등. 타이머 ON: 라운드 3분 · 질문 60초 · 답변 30초.",
+  },
+];
+
+/* ── 세그먼트 버튼 (로비 설정용) ── */
+function SegBtn({
+  active,
+  disabled,
+  onClick,
+  label,
+  sub,
+}: {
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  label: string;
+  sub?: string;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "rounded-lg border border-border bg-background px-2.5 py-2 text-left text-sm font-semibold transition-all",
+        active && "border-foreground bg-surface-warm shadow-[0_0_0_1px_var(--foreground)]",
+        disabled && "cursor-not-allowed opacity-50",
+      )}
+    >
+      {label}
+      {sub ? (
+        <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">
+          {sub}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
 export function LobbyView({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
-  const { room, game, isHost, startGame, newRound, meId, meName } = useRoom();
+  const { room, game, cmyGame, isHost, startGame, newRound, meId, meName } = useRoom();
   const [startErr, setStartErr] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
-  // 제시어 그룹: optimistic 로컬 상태 — 서버 확인(round-trip)까지 선택이 유지돼
-  // controlled 값이 socket re-render로 되돌아가며 선택이 사라지는 문제 방지
+
+  // 제시어 그룹 (lyar·cmy 공용): optimistic 로컬 상태
   const [groupSel, setGroupSel] = useState<number | null | undefined>(undefined);
-  // 설정 action 커밋 중 — 시작과 순서를 보장 (game:start가 미커밋 설정을 읽지 않도록)
   const [groupPending, setGroupPending] = useState(false);
   const groupValue = (groupSel ?? room?.wordGroupId) ?? "";
 
+  // 양세찬 게임 설정: optimistic 로컬 상태
+  const [modeSel, setModeSel] = useState<"forehead" | "hand" | undefined>(undefined);
+  const [sourceSel, setSourceSel] = useState<"random" | "master" | undefined>(undefined);
+  const [timerSel, setTimerSel] = useState<"on" | "off" | undefined>(undefined);
+  const [masterSel, setMasterSel] = useState<string | undefined>(undefined);
+  const [settingsPending, setSettingsPending] = useState(false);
+
   if (!room) return null;
 
-  const inResult = room.status === "game" && game?.phase === "result";
-  const canStart = room.status === "lobby" && room.players.length >= MIN_PLAYERS;
+  const isCmy = room.game === "cmy";
+  const mode = modeSel ?? room.cmyMode;
+  const source = sourceSel ?? room.cmyWordSource;
+  const timerVal = timerSel ?? room.cmyTimer;
+  const masterId = masterSel ?? room.cmyMasterPlayerId ?? "";
+  const pending = isCmy ? settingsPending : groupPending;
+  const rules = isCmy ? RULES_CMY : RULES_LYAR;
+
+  const minPlayers = isCmy
+    ? source === "master"
+      ? CMY_MIN_PLAYERS_MASTER
+      : CMY_MIN_PLAYERS
+    : MIN_PLAYERS;
+
+  const inResult =
+    room.status === "game" &&
+    (isCmy ? cmyGame?.phase === "result" : game?.phase === "result");
+  const canStart = room.status === "lobby" && room.players.length >= minPlayers;
 
   const handleStart = async () => {
     setStarting(true);
@@ -56,6 +143,11 @@ export function LobbyView({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
     if (!res.ok) setStartErr(res.error ?? "시작할 수 없어요.");
   };
 
+  const patch = (p: CmySettingsPatch) => {
+    setSettingsPending(true);
+    setGameSettings(room.code, meId, p).then(() => setSettingsPending(false));
+  };
+
   return (
     <div className="mx-auto grid w-full max-w-7xl grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_370px] lg:gap-12">
       {/* ── 왼쪽: 방 정보 + 플레이어 + 규칙 ── */}
@@ -68,13 +160,14 @@ export function LobbyView({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
             {room.name}
           </h1>
           <p className="mt-1.5 text-sm text-muted-foreground">
-            방 코드 <span className="font-mono font-bold">{room.code}</span> · 라이어 게임
+            방 코드 <span className="font-mono font-bold">{room.code}</span> ·{" "}
+            {isCmy ? "양세찬 게임" : "라이어 게임"}
           </p>
         </div>
 
-        {/* 결과 요약 (결과 단계에서 대기실로 왔을 때) */}
+        {/* 결과 요약 */}
         <AnimatePresence>
-          {inResult && game ? (
+          {inResult ? (
             <motion.div
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
@@ -85,14 +178,27 @@ export function LobbyView({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
                 <p className="text-xs font-semibold tracking-[0.08em] text-muted-foreground">
                   JUST FINISHED
                 </p>
-                <p className="mt-2 text-3xl font-bold tracking-display">
-                  {game.result === "lyar" ? "라이어 승리!" : "시민 승리!"}
-                </p>
-                <p className="mt-2 text-sm text-muted-foreground">{game.resultReason}</p>
-                <div className="mt-4 rounded-xl border border-border bg-surface-warm py-4">
-                  <p className="text-sm text-muted-foreground">제시어</p>
-                  <p className="mt-1 text-3xl font-bold tracking-display">{game.word}</p>
-                </div>
+                {isCmy && cmyGame?.ranking ? (
+                  <>
+                    <p className="mt-2 text-3xl font-bold tracking-display">
+                      {cmyGame.ranking[0]?.name} 1위!
+                    </p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      제시어: <b className="text-foreground">{cmyGame.ranking[0]?.word}</b>
+                    </p>
+                  </>
+                ) : game ? (
+                  <>
+                    <p className="mt-2 text-3xl font-bold tracking-display">
+                      {game.result === "lyar" ? "라이어 승리!" : "시민 승리!"}
+                    </p>
+                    <p className="mt-2 text-sm text-muted-foreground">{game.resultReason}</p>
+                    <div className="mt-4 rounded-xl border border-border bg-surface-warm py-4">
+                      <p className="text-sm text-muted-foreground">제시어</p>
+                      <p className="mt-1 text-3xl font-bold tracking-display">{game.word}</p>
+                    </div>
+                  </>
+                ) : null}
               </Card>
             </motion.div>
           ) : null}
@@ -104,7 +210,7 @@ export function LobbyView({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
               플레이어 <span className="font-mono text-meta">{room.players.length}명</span>
             </h2>
             <Badge variant="outline" className="h-6 px-2.5">
-              3명 이상
+              {isCmy ? "2명 이상" : "3명 이상"}
             </Badge>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -146,7 +252,7 @@ export function LobbyView({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
         <Card className="rounded-2xl px-5 py-4">
           <h2 className="text-base font-semibold">게임 규칙</h2>
           <ol className="mt-3 flex flex-col gap-2.5">
-            {RULES.map((r, i) => (
+            {rules.map((r, i) => (
               <li
                 key={i}
                 className="flex gap-3 text-[15px] leading-relaxed text-foreground/80"
@@ -164,7 +270,7 @@ export function LobbyView({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
                     </>
                   ) : null}
                   {r.text}
-                  {i === 4 ? (
+                  {!isCmy && i === 4 ? (
                     <span className="text-meta"> 동률 투표는 아무도 지목되지 않은 걸로 봐요.</span>
                   ) : null}
                 </span>
@@ -181,12 +287,14 @@ export function LobbyView({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
             aria-hidden="true"
             className="grid size-13 flex-none place-items-center rounded-xl bg-foreground font-mono text-lg font-bold text-background"
           >
-            Ly
+            {isCmy ? "CMy" : "Ly"}
           </div>
           <div className="min-w-0">
-            <h2 className="text-lg font-bold tracking-[-0.01em]">라이어 게임</h2>
+            <h2 className="text-lg font-bold tracking-[-0.01em]">
+              {isCmy ? "양세찬 게임" : "라이어 게임"}
+            </h2>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              3명 이상 · 제시어 1개
+              {isCmy ? `${minPlayers}명 이상 · 각자 제시어 1개` : "3명 이상 · 제시어 1개"}
             </p>
           </div>
         </div>
@@ -206,41 +314,193 @@ export function LobbyView({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
           <span className="font-mono font-bold">{room.players.length}명</span>
         </div>
 
-        {/* 제시어 그룹 설정 (호스트) */}
-        <div className="mt-3 rounded-xl border border-border bg-background p-3.5">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-muted-foreground">제시어 그룹</span>
-            {!isHost ? (
-              <span className="text-xs text-meta">호스트가 설정해요</span>
-            ) : null}
+        {isCmy ? (
+          /* ── 양세찬 게임 설정 ── */
+          <div className="mt-3 rounded-xl border border-border bg-background p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-muted-foreground">게임 설정</span>
+              {!isHost ? (
+                <span className="text-xs text-meta">호스트가 설정해요</span>
+              ) : null}
+            </div>
+
+            <span className="mt-3 block text-xs font-semibold text-muted-foreground">
+              모드
+            </span>
+            <div className="mt-1.5 grid grid-cols-2 gap-2">
+              <SegBtn
+                active={mode === "forehead"}
+                disabled={!isHost}
+                onClick={() => {
+                  setModeSel("forehead");
+                  patch({ cmyMode: "forehead" });
+                }}
+                label="🔝 이마"
+                sub="상대 이마 배지"
+              />
+              <SegBtn
+                active={mode === "hand"}
+                disabled={!isHost}
+                onClick={() => {
+                  setModeSel("hand");
+                  patch({ cmyMode: "hand" });
+                }}
+                label="✋ 손"
+                sub="내 손 카드"
+              />
+            </div>
+
+            <span className="mt-3 block text-xs font-semibold text-muted-foreground">
+              제시어
+            </span>
+            <div className="mt-1.5 grid grid-cols-2 gap-2">
+              <SegBtn
+                active={source === "random"}
+                disabled={!isHost}
+                onClick={() => {
+                  setSourceSel("random");
+                  patch({ cmyWordSource: "random" });
+                }}
+                label="랜덤"
+                sub="단어 그룹"
+              />
+              <SegBtn
+                active={source === "master"}
+                disabled={!isHost}
+                onClick={() => {
+                  setSourceSel("master");
+                  patch({ cmyWordSource: "master" });
+                }}
+                label="출제자"
+                sub="직접 지정"
+              />
+            </div>
+
+            {source === "random" ? (
+              <div className="relative mt-3">
+                <select
+                  aria-label="제시어 그룹"
+                  value={groupValue}
+                  disabled={!isHost}
+                  onChange={(e) => {
+                    const gid = e.target.value === "" ? null : Number(e.target.value);
+                    setGroupSel(gid);
+                    setGroupPending(true);
+                    setGameSettings(room.code, meId, { wordGroupId: gid }).then(
+                      () => setGroupPending(false),
+                    );
+                  }}
+                  className="h-11 w-full appearance-none rounded-lg border border-border bg-background pl-3.5 pr-9 text-sm font-semibold outline-none transition-colors focus:border-foreground disabled:cursor-not-allowed disabled:text-muted-foreground"
+                >
+                  <option value="">전체 랜덤</option>
+                  {wordGroups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  aria-hidden="true"
+                  className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted-foreground"
+                />
+              </div>
+            ) : (
+              <div className="relative mt-3">
+                <select
+                  aria-label="출제자"
+                  value={masterId}
+                  disabled={!isHost}
+                  onChange={(e) => {
+                    const pid = e.target.value;
+                    setMasterSel(pid);
+                    setSettingsPending(true);
+                    setGameSettings(room.code, meId, {
+                      cmyMasterPlayerId: pid || null,
+                    }).then(() => setSettingsPending(false));
+                  }}
+                  className="h-11 w-full appearance-none rounded-lg border border-border bg-background pl-3.5 pr-9 text-sm font-semibold outline-none transition-colors focus:border-foreground disabled:cursor-not-allowed disabled:text-muted-foreground"
+                >
+                  <option value="">출제자를 선택하세요</option>
+                  {room.players.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                      {p.host ? " (호스트)" : ""}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  aria-hidden="true"
+                  className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted-foreground"
+                />
+                <p className="mt-1.5 text-xs text-meta">출제자는 이 판에 참여하지 않아요.</p>
+              </div>
+            )}
+
+            <span className="mt-3 block text-xs font-semibold text-muted-foreground">
+              타이머
+            </span>
+            <div className="mt-1.5 grid grid-cols-2 gap-2">
+              <SegBtn
+                active={timerVal === "on"}
+                disabled={!isHost}
+                onClick={() => {
+                  setTimerSel("on");
+                  patch({ cmyTimer: "on" });
+                }}
+                label="ON"
+                sub="라운드 3분"
+              />
+              <SegBtn
+                active={timerVal === "off"}
+                disabled={!isHost}
+                onClick={() => {
+                  setTimerSel("off");
+                  patch({ cmyTimer: "off" });
+                }}
+                label="OFF"
+                sub="제한 없음"
+              />
+            </div>
+
+            <p className="mt-2.5 text-xs text-meta">다음 판부터 적용돼요.</p>
           </div>
-          <div className="relative mt-2">
-            <select
-              aria-label="제시어 그룹"
-              value={groupValue}
-              disabled={!isHost}
-              onChange={(e) => {
-                const gid = e.target.value === "" ? null : Number(e.target.value);
-                setGroupSel(gid);
-                setGroupPending(true);
-                setWordGroup(room.code, meId, gid).then(() => setGroupPending(false));
-              }}
-              className="h-11 w-full appearance-none rounded-lg border border-border bg-background pl-3.5 pr-9 text-sm font-semibold outline-none transition-colors focus:border-foreground disabled:cursor-not-allowed disabled:text-muted-foreground"
-            >
-              <option value="">전체 랜덤</option>
-              {wordGroups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
-            </select>
-            <ChevronDown
-              aria-hidden="true"
-              className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted-foreground"
-            />
+        ) : (
+          /* ── 라이어: 제시어 그룹 설정 (호스트) ── */
+          <div className="mt-3 rounded-xl border border-border bg-background p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-muted-foreground">제시어 그룹</span>
+              {!isHost ? (
+                <span className="text-xs text-meta">호스트가 설정해요</span>
+              ) : null}
+            </div>
+            <div className="relative mt-2">
+              <select
+                aria-label="제시어 그룹"
+                value={groupValue}
+                disabled={!isHost}
+                onChange={(e) => {
+                  const gid = e.target.value === "" ? null : Number(e.target.value);
+                  setGroupSel(gid);
+                  setGroupPending(true);
+                  setWordGroup(room.code, meId, gid).then(() => setGroupPending(false));
+                }}
+                className="h-11 w-full appearance-none rounded-lg border border-border bg-background pl-3.5 pr-9 text-sm font-semibold outline-none transition-colors focus:border-foreground disabled:cursor-not-allowed disabled:text-muted-foreground"
+              >
+                <option value="">전체 랜덤</option>
+                {wordGroups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                aria-hidden="true"
+                className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted-foreground"
+              />
+            </div>
+            <p className="mt-2 text-xs text-meta">다음 판부터 적용돼요.</p>
           </div>
-          <p className="mt-2 text-xs text-meta">다음 판부터 적용돼요.</p>
-        </div>
+        )}
 
         {startErr ? (
           <p role="alert" className="mt-3 text-sm font-semibold text-destructive">
@@ -251,7 +511,7 @@ export function LobbyView({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
         {!inResult ? (
           <Button
             onClick={handleStart}
-            disabled={!canStart || starting || groupPending}
+            disabled={!canStart || starting || pending}
             className="mt-5 h-13 w-full rounded-lg text-base hover:bg-primary-hover"
           >
             {room.status === "game" ? (
@@ -260,8 +520,8 @@ export function LobbyView({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
               </span>
             ) : starting ? (
               "시작 중…"
-            ) : room.players.length < MIN_PLAYERS ? (
-              `${MIN_PLAYERS}명부터 시작해요 (${room.players.length}명)`
+            ) : room.players.length < minPlayers ? (
+              `${minPlayers}명부터 시작해요 (${room.players.length}명)`
             ) : (
               "게임 시작"
             )}

@@ -15,6 +15,17 @@ import {
   submitGuess,
   sweepExpiredTurns,
 } from "../game/lyar";
+import {
+  answerCmyQuestion,
+  askCmyQuestion,
+  buildCmyYouView,
+  getCmyGameDTO,
+  guessCmyWord,
+  masterSubmitWords,
+  startCmyGame,
+  startCmyNewRound,
+  sweepCmy,
+} from "../game/cmy";
 import { setIo, emitRoomClosed, emitGameState, emitRoomState } from "../broadcast";
 import { C2S, EV } from "../types";
 
@@ -34,16 +45,32 @@ function evictStaleSockets(io: Server, socket: Socket) {
   }
 }
 
-function handlePlayerLeft(code: string, playerId: string) {
+function handlePlayerLeft(io: Server, code: string, playerId: string) {
   const room = removePlayer(code, playerId);
   if (room) {
     emitRoomState(code, room);
     if (room.status === "game") {
-      const game = getGameDTO(code);
-      if (game) emitGameState(code, game);
+      if (room.game === "cmy") emitCmyState(io, code);
+      else {
+        const game = getGameDTO(code);
+        if (game) emitGameState(code, game);
+      }
     }
   } else {
     emitRoomClosed(code);
+  }
+}
+
+/** cmy 상태 브로드캐스트 (베이스 + 소켓별 개인화 단어 뷰) */
+function emitCmyState(io: Server, code: string) {
+  const g = getCmyGameDTO(code);
+  if (!g) return;
+  io.to(`room:${code}`).emit(EV.cmyState, g);
+  for (const s of io.of("/").sockets.values()) {
+    const d = s.data as { code?: string; playerId?: string };
+    if (d.code !== code || !d.playerId) continue;
+    const view = buildCmyYouView(code, d.playerId);
+    if (view) s.emit(EV.youCmyView, view);
   }
 }
 
@@ -79,12 +106,16 @@ export function setupSocketServer(io: Server) {
     socket.emit(EV.roomState, room);
 
     if (room.status === "game") {
-      const game = getGameDTO(code);
-      if (game) {
-        socket.emit(EV.gameState, game);
-        if (game.phase === "reveal") {
-          const role = buildRole(code, playerId);
-          if (role) socket.emit(EV.youRole, role);
+      if (room.game === "cmy") {
+        emitCmyState(io, code);
+      } else {
+        const game = getGameDTO(code);
+        if (game) {
+          socket.emit(EV.gameState, game);
+          if (game.phase === "reveal") {
+            const role = buildRole(code, playerId);
+            if (role) socket.emit(EV.youRole, role);
+          }
         }
       }
     }
@@ -109,6 +140,16 @@ export function setupSocketServer(io: Server) {
       if (!now) return cb?.({ ok: false, error: "방을 찾을 수 없어요." });
       if (now.hostId !== playerId) return cb?.({ ok: false, error: "호스트만 게임을 시작할 수 있어요." });
       if (now.status === "game") return cb?.({ ok: false, error: "이미 진행 중인 게임이 있어요." });
+
+      if (now.game === "cmy") {
+        const res = startCmyGame(code);
+        if (!res.ok) return cb?.(res);
+        emitRoomState(code, res.room);
+        emitCmyState(io, code);
+        cb?.({ ok: true });
+        return;
+      }
+
       const res = startGame(code);
       if (!res.ok) return cb?.(res);
       emitNewGame(res);
@@ -151,9 +192,48 @@ export function setupSocketServer(io: Server) {
       if (!now || now.hostId !== playerId) {
         return cb?.({ ok: false, error: "호스트만 새 게임을 시작할 수 있어요." });
       }
+      if (now.game === "cmy") {
+        const res = startCmyNewRound(code);
+        if (!res.ok) return cb?.(res);
+        emitRoomState(code, res.room);
+        emitCmyState(io, code);
+        cb?.({ ok: true });
+        return;
+      }
       const res = startNewRound(code);
       if (!res.ok) return cb?.(res);
       emitNewGame(res);
+      cb?.({ ok: true });
+    });
+
+    /* ── 양세찬 게임 (콜 마이 네임) ── */
+
+    socket.on(C2S.cmyAsk, (text: unknown) => {
+      const game = askCmyQuestion(code, playerId, String(text ?? ""));
+      if (game) emitCmyState(io, code);
+    });
+
+    socket.on(C2S.cmyAnswer, (ans: unknown) => {
+      const a = String(ans ?? "") === "yes" ? ("yes" as const) : ("no" as const);
+      const game = answerCmyQuestion(code, playerId, a);
+      if (game) emitCmyState(io, code);
+    });
+
+    socket.on(C2S.cmyGuess, (word: unknown) => {
+      const { game, myGuess } = guessCmyWord(code, playerId, String(word ?? ""));
+      if (myGuess) socket.emit(EV.myCmyGuess, myGuess);
+      if (game) emitCmyState(io, code);
+    });
+
+    socket.on(C2S.cmyMasterSubmit, (words: unknown, cb?: Ack) => {
+      const w =
+        typeof words === "object" && words !== null ? (words as Record<string, string>) : {};
+      const res = masterSubmitWords(code, playerId, w);
+      if ("ok" in res) {
+        cb?.(res);
+        return;
+      }
+      emitCmyState(io, code);
       cb?.({ ok: true });
     });
 
@@ -165,20 +245,24 @@ export function setupSocketServer(io: Server) {
           (s) => (s.data as { code?: string; playerId?: string }).playerId === playerId &&
             (s.data as { code?: string; playerId?: string }).code === code,
         );
-        if (!stillHere) handlePlayerLeft(code, playerId);
+        if (!stillHere) handlePlayerLeft(io, code, playerId);
       }, 5000);
       t.unref?.();
     });
   });
 
-  // 설명 턴 타임아웃 sweep (2.5초 주기)
+  // 턴 타임아웃 sweep (2.5초 주기) — 라이어(설명 턴) + cmy(질문/답변/라운드)
   const sweep = setInterval(() => {
     try {
-      for (const c of sweepExpiredTurns()) {
+      const changed = new Set<string>();
+      for (const c of sweepExpiredTurns()) changed.add(c);
+      for (const c of sweepCmy()) changed.add(c);
+      for (const c of changed) {
         const room = getRoomDTO(c);
         if (!room) continue;
         emitRoomState(c, room);
-        broadcastGameFor(c);
+        if (room.game === "cmy") emitCmyState(io, c);
+        else broadcastGameFor(c);
       }
     } catch (err) {
       console.error("[sweep] error", err);

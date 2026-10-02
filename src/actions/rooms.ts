@@ -71,12 +71,13 @@ export async function createRoom(
   const code = generateRoomCode();
   const playerId = randomUUID();
   const now = Date.now();
+  const game = String(formData.get("game") ?? "lyar") === "cmy" ? "cmy" : ("lyar" as const);
 
   db.insert(rooms)
     .values({
       code,
       name,
-      game: "lyar",
+      game,
       hostPlayerId: playerId,
       status: "lobby",
       createdAt: now,
@@ -156,6 +157,77 @@ export async function setWordGroup(
     if (!grp) return { ok: false, error: "존재하지 않는 그룹이에요." };
   }
   db.update(rooms).set({ wordGroupId: groupId }).where(eq(rooms.code, code)).run();
+  const roomDTO = getRoomDTO(code);
+  if (roomDTO) emitRoomState(code, roomDTO);
+  return { ok: true };
+}
+
+export interface CmySettingsPatch {
+  cmyMode?: "forehead" | "hand";
+  cmyWordSource?: "random" | "master";
+  cmyMasterPlayerId?: string | null;
+  cmyTimer?: "on" | "off";
+  wordGroupId?: number | null;
+}
+
+/** 호스트만. 방 설정 (단어 그룹 + 양세찬 게임 모드/제시어/출제자/타이머). */
+export async function setGameSettings(
+  code: string,
+  playerId: string,
+  patch: CmySettingsPatch,
+): Promise<{ ok: boolean; error?: string }> {
+  const room = db.select().from(rooms).where(eq(rooms.code, code)).get();
+  if (!room) return { ok: false, error: "방을 찾을 수 없어요." };
+  if (room.hostPlayerId !== playerId) {
+    return { ok: false, error: "호스트만 설정할 수 있어요." };
+  }
+
+  const set: {
+    wordGroupId?: number | null;
+    cmyMode?: string;
+    cmyWordSource?: string;
+    cmyMasterPlayerId?: string | null;
+    cmyTimer?: string;
+  } = {};
+
+  if (patch.wordGroupId !== undefined) {
+    if (patch.wordGroupId !== null) {
+      const grp = db.select().from(wordGroups).where(eq(wordGroups.id, patch.wordGroupId)).get();
+      if (!grp) return { ok: false, error: "존재하지 않는 그룹이에요." };
+    }
+    set.wordGroupId = patch.wordGroupId;
+  }
+  if (patch.cmyMode !== undefined) {
+    if (patch.cmyMode !== "forehead" && patch.cmyMode !== "hand") {
+      return { ok: false, error: "잘못된 모드예요." };
+    }
+    set.cmyMode = patch.cmyMode;
+  }
+  if (patch.cmyWordSource !== undefined) {
+    if (patch.cmyWordSource !== "random" && patch.cmyWordSource !== "master") {
+      return { ok: false, error: "잘못된 설정이에요." };
+    }
+    set.cmyWordSource = patch.cmyWordSource;
+    // 랜덤으로 전환하면 출제자 지정 해제
+    if (patch.cmyWordSource === "random") set.cmyMasterPlayerId = null;
+  }
+  if (patch.cmyMasterPlayerId !== undefined) {
+    if (patch.cmyMasterPlayerId === null) {
+      set.cmyMasterPlayerId = null;
+    } else {
+      const p = db.select().from(players).where(eq(players.id, patch.cmyMasterPlayerId)).get();
+      if (!p || p.roomId !== code) return { ok: false, error: "이 방의 플레이어를 선택해 주세요." };
+      set.cmyMasterPlayerId = patch.cmyMasterPlayerId;
+    }
+  }
+  if (patch.cmyTimer !== undefined) {
+    if (patch.cmyTimer !== "on" && patch.cmyTimer !== "off") {
+      return { ok: false, error: "잘못된 설정이에요." };
+    }
+    set.cmyTimer = patch.cmyTimer;
+  }
+
+  db.update(rooms).set(set).where(eq(rooms.code, code)).run();
   const roomDTO = getRoomDTO(code);
   if (roomDTO) emitRoomState(code, roomDTO);
   return { ok: true };

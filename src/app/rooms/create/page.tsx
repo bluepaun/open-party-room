@@ -8,7 +8,14 @@ export const metadata: Metadata = {
   title: "방 만들기 · 파티룸",
 };
 
-export default function CreateRoomPage() {
+export default async function CreateRoomPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ game?: string }>;
+}) {
+  const { game } = await searchParams;
+  const g = game === "cmy" ? ("cmy" as const) : ("lyar" as const);
+
   return (
     <>
       <TopNav
@@ -25,7 +32,7 @@ export default function CreateRoomPage() {
           </p>
           <h1 className="text-2xl font-bold tracking-display">방 만들기</h1>
           <div className="mt-8">
-            <CreateRoomForm />
+            <CreateRoomForm game={g} />
           </div>
         </div>
       </main>

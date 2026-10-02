@@ -3,6 +3,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { db } from "../db";
 import { lyarGames, players, rooms } from "../db/schema";
 import { getWordPool } from "./words";
+import { getRoomDTO } from "../rooms";
 import {
   TURN_SECONDS,
   type GameDTO,
@@ -158,7 +159,7 @@ export function startGame(code: string): StartResult | StartError {
 
   return {
     ok: true,
-    room: requireRoom(code)!,
+    room: getRoomDTO(code)!,
     game: getGameDTO(code)!,
     roles,
   };
@@ -354,29 +355,5 @@ export function resetToLobby(code: string): RoomDTO | null {
   if (!room) return null;
   db.delete(lyarGames).where(eq(lyarGames.roomId, code)).run();
   db.update(rooms).set({ status: "lobby" }).where(eq(rooms.code, code)).run();
-  return requireRoom(code);
-}
-
-function requireRoom(code: string): RoomDTO | null {
-  const room = db.select().from(rooms).where(eq(rooms.code, code)).get();
-  if (!room) return null;
-  const ps = db
-    .select()
-    .from(players)
-    .where(eq(players.roomId, code))
-    .orderBy(asc(players.joinedAt), asc(players.id))
-    .all();
-  return {
-    code: room.code,
-    name: room.name,
-    status: room.status as RoomDTO["status"],
-    hostId: room.hostPlayerId,
-    wordGroupId: room.wordGroupId ?? null,
-    players: ps.map((p) => ({
-      id: p.id,
-      name: p.name,
-      host: p.id === room.hostPlayerId,
-      joinedAt: p.joinedAt,
-    })),
-  };
+  return getRoomDTO(code);
 }

@@ -9,11 +9,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { RoomProvider, useRoom } from "./socket-context";
 import { LobbyView } from "./lobby-view";
 import { GameView } from "./game-view";
+import { CmyView } from "./cmy-view";
 import { MeChip, PhaseNav } from "./shared";
 import type { WordGroupDTO } from "@/lib/game/words";
 
 function RoomShell({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
-  const { room, game, connected, authFailed, roomClosed, meId, meName } = useRoom();
+  const { room, game, cmyGame, connected, authFailed, roomClosed, meId, meName } = useRoom();
   const router = useRouter();
   const [viewLobby, setViewLobby] = useState(false);
 
@@ -44,7 +45,9 @@ function RoomShell({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
 
   const inGame = room.status === "game";
   // viewLobby는 result phase 동안만 의미: 새 라운드 시작(phase 변경) 시 자동 해제
-  const showLobby = !inGame || (viewLobby && game?.phase === "result");
+  const inResult =
+    room.game === "cmy" ? cmyGame?.phase === "result" : game?.phase === "result";
+  const showLobby = !inGame || (viewLobby && inResult);
 
   const exitGame = () => {
     if (
@@ -64,7 +67,13 @@ function RoomShell({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
         right={
           inGame ? (
             <>
-              <PhaseNav phase={game?.phase ?? "reveal"} />
+              {room.game === "cmy" ? (
+                <span className="hidden text-sm font-semibold text-muted-foreground md:inline">
+                  질문 · 추리
+                </span>
+              ) : (
+                <PhaseNav phase={game?.phase ?? "reveal"} />
+              )}
               <MeChip name={meName} />
               <Button
                 variant="ghost"
@@ -85,6 +94,8 @@ function RoomShell({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
       <main className="flex-1 px-4 py-10 md:px-6 lg:px-10 lg:py-10">
         {showLobby ? (
           <LobbyView wordGroups={wordGroups} />
+        ) : room.game === "cmy" ? (
+          <CmyView onLobby={() => setViewLobby(true)} />
         ) : (
           <GameView onLobby={() => setViewLobby(true)} />
         )}

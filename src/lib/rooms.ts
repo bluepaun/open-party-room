@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq, asc } from "drizzle-orm";
 import { db } from "./db";
-import { players, rooms, lyarGames } from "./db/schema";
+import { players, rooms, lyarGames, cmyGames } from "./db/schema";
 import type { PlayerDTO, RoomDTO } from "./types";
 
 /** 코드의 가독성을 위해 I·L·O·0·1 제거 */
@@ -42,9 +42,14 @@ export function getRoomDTO(code: string): RoomDTO | null {
   return {
     code: room.code,
     name: room.name,
+    game: room.game as RoomDTO["game"],
     status: room.status as RoomDTO["status"],
     hostId: room.hostPlayerId,
     wordGroupId: room.wordGroupId ?? null,
+    cmyMode: (room.cmyMode ?? "forehead") as RoomDTO["cmyMode"],
+    cmyWordSource: (room.cmyWordSource ?? "random") as RoomDTO["cmyWordSource"],
+    cmyMasterPlayerId: room.cmyMasterPlayerId ?? null,
+    cmyTimer: (room.cmyTimer ?? "on") as RoomDTO["cmyTimer"],
     players: listPlayers(code),
   };
 }
@@ -62,12 +67,16 @@ export function removePlayer(code: string, playerId: string): RoomDTO | null {
   if (!room) return null;
 
   const game = db.select().from(lyarGames).where(eq(lyarGames.roomId, code)).get();
-  const gameActive = room.status === "game" && game && game.phase !== "result";
+  const cmy = db.select().from(cmyGames).where(eq(cmyGames.roomId, code)).get();
+  const gameActive =
+    room.status === "game" &&
+    ((game && game.phase !== "result") || (cmy && cmy.phase !== "result"));
 
   db.delete(players).where(eq(players.id, playerId)).run();
 
   if (gameActive) {
     db.delete(lyarGames).where(eq(lyarGames.roomId, code)).run();
+    db.delete(cmyGames).where(eq(cmyGames.roomId, code)).run();
     db.update(rooms).set({ status: "lobby" }).where(eq(rooms.code, code)).run();
   }
 

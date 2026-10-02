@@ -4,8 +4,82 @@
  */
 
 export type RoomStatus = "lobby" | "game";
+export type GameKind = "lyar" | "cmy";
 export type GamePhase = "reveal" | "explain" | "vote" | "guess" | "result";
 export type GameResult = "lyar" | "citizen";
+
+/* ── 양세찬 게임(콜 마이 네임) ── */
+export type CmyMode = "forehead" | "hand";
+export type CmyWordSource = "random" | "master";
+export type CmyPhase = "setup" | "play" | "result";
+export type CmyAnswer = "yes" | "no" | "skip";
+
+export interface CmyPlayerView {
+  id: string;
+  name: string;
+  host: boolean;
+  /** result phase부터 */
+  solved: boolean;
+  rank: number | null;
+  /** result phase부터: 그 플레이어의 단어 */
+  word: string | null;
+}
+
+export interface CmyQuestionView {
+  text: string;
+  askedBy: string;
+  /** 라이브 공개 답변 (원조 룰: 소리 내어 답변) */
+  answers: Record<string, CmyAnswer>;
+  /** 답변 완료 수 / 전체 답변자 수 */
+  answered: number;
+  total: number;
+}
+
+export interface CmyRankingRow {
+  playerId: string;
+  name: string;
+  word: string;
+  solved: boolean;
+  /** 해결 순서 — 미해결(꼴등)은 null */
+  rank: number | null;
+}
+
+export interface CmyGameDTO {
+  phase: CmyPhase;
+  mode: CmyMode;
+  wordSource: CmyWordSource;
+  timerOn: boolean;
+  startedAt: number;
+  /** 타이머 ON일 때만 */
+  roundDeadline: number | null;
+  masterPlayerId: string | null;
+  /** 현재 턴 플레이어 (play) */
+  turnPlayerId: string | null;
+  turnStep: "ask" | "answers" | null;
+  stepDeadline: number | null;
+  question: CmyQuestionView | null;
+  players: CmyPlayerView[];
+  solvedCount: number;
+  totalCount: number;
+  /** result phase: 등수 (미해결은 마지막) */
+  ranking: CmyRankingRow[] | null;
+  /** setup phase: 출제자가 단어 입력할 대상 (참여자) */
+  setupTargets: { playerId: string; name: string }[] | null;
+}
+
+/** 개인화: 내가 볼 수 있는 다른 플레이어들의 단어 (본인 제외) */
+export interface CmyYouView {
+  /** forehead: 타인 아바타 위 배지 / hand: 내 카드 트레이 (데이터 동일, 표시만 다름) */
+  othersWords: Record<string, string>;
+  isMaster: boolean;
+}
+
+/** 내 추정 결과 (성공/실패) — stamp: 클라이언트 토스트 리마운트용 */
+export interface CmyMyGuess {
+  ok: boolean;
+  rank: number | null;
+  stamp: number;
+}
 
 export interface PlayerDTO {
   id: string;
@@ -17,10 +91,16 @@ export interface PlayerDTO {
 export interface RoomDTO {
   code: string;
   name: string;
+  game: GameKind;
   status: RoomStatus;
   hostId: string | null;
   /** 제시어 그룹 id — null = 전체 랜덤 */
   wordGroupId: number | null;
+  /** 'cmy' 방 설정 */
+  cmyMode: CmyMode;
+  cmyWordSource: CmyWordSource;
+  cmyMasterPlayerId: string | null;
+  cmyTimer: "on" | "off";
   players: PlayerDTO[];
 }
 
@@ -64,9 +144,15 @@ export interface YouRoleDTO {
 export const EV = {
   roomState: "room:state",
   gameState: "game:state",
+  /** cmy: 게임 상태 (베이스, 단어 불포함) */
+  cmyState: "cmy:state",
   youRole: "you:role",
   /** 투표한 플레이어에게만: 나의 선택 */
   myVote: "my:vote",
+  /** cmy: 개인화 단어 뷰 (타인 단어, 본인 제외) */
+  youCmyView: "you:cmy-view",
+  /** cmy: 내 추정 결과 */
+  myCmyGuess: "my:cmy-guess",
   roomClosed: "room:closed",
 } as const;
 
@@ -79,8 +165,24 @@ export const C2S = {
   next: "game:next",
   guess: "game:guess",
   newRound: "game:new-round",
+  /** cmy: 현재 턴 플레이어의 질문 */
+  cmyAsk: "cmy:ask",
+  /** cmy: 답변 (yes/no) */
+  cmyAnswer: "cmy:answer",
+  /** cmy: 정답 추정 */
+  cmyGuess: "cmy:guess",
+  /** cmy: 출제자의 단어 제출 (setup) */
+  cmyMasterSubmit: "cmy:master-submit",
 } as const;
 
 export const TURN_SECONDS = 60;
 export const MIN_PLAYERS = 3;
 export const MAX_PLAYERS = 8;
+
+/* ── cmy 타이머 (타이머 ON 모드) ── */
+export const CMY_MIN_PLAYERS = 2;
+/** master 모드: 참가자 2 + 출제자 1 */
+export const CMY_MIN_PLAYERS_MASTER = 3;
+export const CMY_ASK_SECONDS = 60;
+export const CMY_ANSWER_SECONDS = 30;
+export const CMY_ROUND_SECONDS = 180;

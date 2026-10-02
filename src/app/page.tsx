@@ -32,6 +32,17 @@ const games: GameCard[] = [
     cover: "/images/liar-cover.png",
   },
   {
+    id: "cmy",
+    no: "GAME 02",
+    word: "콜마이네임",
+    title: "양세찬 게임",
+    spec: "2–8명 · 이마/손",
+    playable: true,
+    href: "/rooms/create?game=cmy",
+    cta: "방 만들기",
+    cover: null,
+  },
+  {
     id: "whisper",
     no: "",
     word: "속삭",
