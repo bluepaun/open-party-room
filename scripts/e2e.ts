@@ -267,11 +267,48 @@ async function main() {
   const gAdvanced = await c1.waitForGame((g) => g.explainIndex === 1, 10000);
   check(gAdvanced.explainIndex === 1, "sweep: 턴 자동 진행");
 
-  // ── 9. 게임 중 이탈 → 라운드 초기화 (disconnect grace 5s) ──
+  // ── 8b. 2라운드 설명 완료 (턴 1, 2) ──
+  for (let i = 1; i < 3; i++) {
+    const cur = gAdvanced.order[i];
+    const curClient = cur === p1 ? c1 : cur === p2 ? c2 : c3;
+    const nextPromise = c1.waitForGame(
+      (g) => g.explainIndex > i || g.phase === "vote",
+      6000,
+    );
+    curClient.s.emit("game:explain-done");
+    await nextPromise;
+  }
+  await c1.waitForGame((g) => g.phase === "vote");
+
+  // ── 8c. 2라운드 투표: 라이어 아닌 사람 지목 → 규칙 5 (라이어 승리) ──
+  const dbGame2nd = db.select().from(games).where(eq(games.roomId, code)).get();
+  const liar2 = dbGame2nd!.liarPlayerId;
+  const nonLiar = [p1, p2, p3].find((id) => id !== liar2)!;
+  const gTally2 = c1.waitForGame((g) => g.tallyReady);
+  for (const id of [p1, p2, p3]) {
+    // 비자기투표 금지: nonLiar 본인은 라이어를 지목
+    clients[id].s.emit("game:vote", id === nonLiar ? liar2 : nonLiar);
+  }
+  const gTally2State = await gTally2;
+  check(
+    gTally2State.accusedPlayerId === nonLiar,
+    "2라운드: 라이어 아닌 사람 지목",
+    JSON.stringify({ accused: gTally2State.accusedPlayerId, tally: gTally2State.tally }),
+  );
+  const gRes2 = c1.waitForGame((g) => g.phase === "result");
+  c1.s.emit("game:next");
+  const gResult2 = await gRes2;
+  check(gResult2.result === "lyar", "2라운드: 탈출 → 라이어 승리 (규칙 5)", gResult2);
+  check(gResult2.resultReason.includes("무사히"), "2라운드: 결과 메시지", gResult2.resultReason);
+  check(gResult2.guess === null, "2라운드: guess 단계 생략");
+
+  // ── 9. 게임 중 이탈 → 라운드 초기화 (3라운드 reveal, grace 5s) ──
+  const nrAck2 = await c1.ack("game:new-round");
+  check(nrAck2.ok, "3라운드 시작");
+  await c1.waitForGame((g) => g.phase === "reveal");
   c2.s.disconnect();
   const rLobby = await c1.waitForRoom((r) => r.status === "lobby", 15000);
   check(rLobby.players.length === 2, "이탈자 제거 broadcast");
-  check(c1.game === null || true, "");
   const dbRoom = db.select().from(rooms).where(eq(rooms.code, code)).get();
   check(dbRoom?.status === "lobby", "DB: room → lobby");
   check(

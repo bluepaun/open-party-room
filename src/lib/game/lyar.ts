@@ -288,10 +288,11 @@ export function advanceAfterTally(code: string): GameDTO | null {
     db.update(games).set({ phase: "guess" }).where(eq(games.id, g.id)).run();
     return getGameDTO(code);
   }
+  // 규칙 5: 투표가 라이어를 빠지면 라이어 승리 (무사 탈출)
   return finish(
     code,
-    "citizen",
-    `${nameOf(code, g.accusedPlayerId)}님이 투표에서 지목됐어요. 하지만 그분은 라이어가 아니에요.`,
+    "lyar",
+    `${nameOf(code, g.accusedPlayerId)}님이 투표에서 지목됐어요. 하지만 그분은 라이어가 아니에요. 라이어가 무사히 빠져나갔어요!`,
   );
 }
 
