@@ -3,13 +3,15 @@
 import { useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
-import { leaveRoom, closeRoom } from "@/actions/rooms";
+import { ChevronDown } from "lucide-react";
+import { leaveRoom, closeRoom, setWordGroup } from "@/actions/rooms";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useRoom } from "./socket-context";
 import { Avatar, CopyCodeButton, PulseDot } from "./shared";
 import { MIN_PLAYERS } from "@/lib/types";
+import type { WordGroupDTO } from "@/lib/game/words";
 
 const RULES: { bold: string; text: string }[] = [
   { bold: "한 명", text: "플레이어 중 한 명이 라이어로 랜덤하게 정해져요." },
@@ -22,10 +24,16 @@ const RULES: { bold: string; text: string }[] = [
   },
 ];
 
-export function LobbyView() {
+export function LobbyView({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
   const { room, game, isHost, startGame, newRound, meId, meName } = useRoom();
   const [startErr, setStartErr] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  // 제시어 그룹: optimistic 로컬 상태 — 서버 확인(round-trip)까지 선택이 유지돼
+  // controlled 값이 socket re-render로 되돌아가며 선택이 사라지는 문제 방지
+  const [groupSel, setGroupSel] = useState<number | null | undefined>(undefined);
+  // 설정 action 커밋 중 — 시작과 순서를 보장 (game:start가 미커밋 설정을 읽지 않도록)
+  const [groupPending, setGroupPending] = useState(false);
+  const groupValue = (groupSel ?? room?.wordGroupId) ?? "";
 
   if (!room) return null;
 
@@ -198,6 +206,44 @@ export function LobbyView() {
           <span className="font-mono font-bold">{room.players.length}명</span>
         </div>
 
+        {/* 제시어 그룹 설정 (호스트) */}
+        <div className="mt-3 rounded-xl border border-border bg-background p-3.5">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-muted-foreground">제시어 그룹</span>
+            {!isHost ? (
+              <span className="text-xs text-meta">호스트가 설정해요</span>
+            ) : null}
+          </div>
+          <div className="relative mt-2">
+            <select
+              aria-label="제시어 그룹"
+              value={groupValue}
+              disabled={!isHost}
+              onChange={(e) => {
+                const gid = e.target.value === "" ? null : Number(e.target.value);
+                setGroupSel(gid);
+                setGroupPending(true);
+                setWordGroup(room.code, meId, gid).then(() => setGroupPending(false));
+              }}
+              className="h-11 w-full appearance-none rounded-lg border border-border bg-background pl-3.5 pr-9 text-sm font-semibold outline-none transition-colors focus:border-foreground disabled:cursor-not-allowed disabled:text-muted-foreground"
+            >
+              <option value="">
+                전체 랜덤 ({wordGroups.reduce((s, g) => s + g.count, 0)}개)
+              </option>
+              {wordGroups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name} ({g.count}개)
+                </option>
+              ))}
+            </select>
+            <ChevronDown
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted-foreground"
+            />
+          </div>
+          <p className="mt-2 text-xs text-meta">다음 판부터 적용돼요.</p>
+        </div>
+
         {startErr ? (
           <p role="alert" className="mt-3 text-sm font-semibold text-destructive">
             {startErr}
@@ -207,7 +253,7 @@ export function LobbyView() {
         {!inResult ? (
           <Button
             onClick={handleStart}
-            disabled={!canStart || starting}
+            disabled={!canStart || starting || groupPending}
             className="mt-5 h-13 w-full rounded-lg text-base hover:bg-primary-hover"
           >
             {room.status === "game" ? (

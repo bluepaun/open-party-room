@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { io, type Socket } from "socket.io-client";
 import { db } from "../src/lib/db";
-import { games, players, rooms } from "../src/lib/db/schema";
+import { lyarGames, players, rooms, wordGroups, words } from "../src/lib/db/schema";
 
 const URL = "http://localhost:3000";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -151,6 +151,16 @@ async function main() {
   db.insert(players).values({ id: p3, roomId: code, name: "수진", joinedAt: now + 3 }).run();
   console.log(`방 ${code} 생성 (host=지우)`);
 
+  // 제시어 그룹 설정: 특정 그룹 → 그 그룹의 단어만 뽑혀야 함
+  const grp = db.select().from(wordGroups).orderBy(wordGroups.sort).get()!;
+  db.update(rooms).set({ wordGroupId: grp.id }).where(eq(rooms.code, code)).run();
+  const grpWords = db
+    .select({ word: words.word })
+    .from(words)
+    .where(eq(words.groupId, grp.id))
+    .all()
+    .map((r) => r.word);
+
   const c1 = new Client(code, p1);
   const c2 = new Client(code, p2);
   const c3 = new Client(code, p3);
@@ -179,6 +189,11 @@ async function main() {
   check(liars.length === 1, "라이어 정확히 1명");
   const word = [role1.word, role2.word, role3.word].find(Boolean);
   check(!!word, "시민은 제시어 수신", word);
+  check(
+    typeof word === "string" && grpWords.includes(word),
+    `제시어 그룹 반영 (${grp.name})`,
+    word,
+  );
 
   const liarId = role1.isLiar ? p1 : role2.isLiar ? p2 : p3;
   const liarName = liarId === p1 ? "지우" : liarId === p2 ? "민준" : "수진";
@@ -246,7 +261,7 @@ async function main() {
   check(gResult.word === word, "결과: 제시어 공개", gResult.word);
   check(gResult.resultReason.includes("맞혔어요"), "결과 메시지", gResult.resultReason);
 
-  const dbGame = db.select().from(games).where(eq(games.roomId, code)).get();
+  const dbGame = db.select().from(lyarGames).where(eq(lyarGames.roomId, code)).get();
   check(dbGame?.phase === "result" && dbGame?.result === "lyar", "DB: result 저장");
 
   // ── 7. 새 라운드 (호스트) ──
@@ -260,9 +275,9 @@ async function main() {
   c2.s.emit("game:confirm");
   c3.s.emit("game:confirm");
   await c1.waitForGame((g) => g.phase === "explain" && g.explainIndex === 0);
-  db.update(games)
+  db.update(lyarGames)
     .set({ turnEndedAt: Date.now() - 1000 })
-    .where(eq(games.roomId, code))
+    .where(eq(lyarGames.roomId, code))
     .run();
   const gAdvanced = await c1.waitForGame((g) => g.explainIndex === 1, 10000);
   check(gAdvanced.explainIndex === 1, "sweep: 턴 자동 진행");
@@ -281,7 +296,7 @@ async function main() {
   await c1.waitForGame((g) => g.phase === "vote");
 
   // ── 8c. 2라운드 투표: 라이어 아닌 사람 지목 → 규칙 5 (라이어 승리) ──
-  const dbGame2nd = db.select().from(games).where(eq(games.roomId, code)).get();
+  const dbGame2nd = db.select().from(lyarGames).where(eq(lyarGames.roomId, code)).get();
   const liar2 = dbGame2nd!.liarPlayerId;
   const nonLiar = [p1, p2, p3].find((id) => id !== liar2)!;
   const gTally2 = c1.waitForGame((g) => g.tallyReady);
@@ -315,7 +330,7 @@ async function main() {
     db.select().from(players).where(eq(players.roomId, code)).all().length === 2,
     "DB: 이탈자 제거",
   );
-  const dbGame2 = db.select().from(games).where(eq(games.roomId, code)).get();
+  const dbGame2 = db.select().from(lyarGames).where(eq(lyarGames.roomId, code)).get();
   check(!dbGame2, "DB: game 삭제");
 
   // ── 10. 재접속 차단 확인 (이탈한 플레이어) ──

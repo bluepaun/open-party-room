@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { rooms } from "@/lib/db/schema";
+import { listWordGroups } from "@/lib/game/words";
 import { RoomClient } from "@/components/room/room-client";
 
 const COOKIE = "partyroom.me";
@@ -33,5 +34,12 @@ export default async function RoomPage({
 
   if (!me) redirect(`/join?code=${normCode}`);
 
-  return <RoomClient code={normCode} playerId={me.id} name={me.name} />;
+  return (
+    <RoomClient
+      code={normCode}
+      playerId={me.id}
+      name={me.name}
+      wordGroups={listWordGroups()}
+    />
+  );
 }

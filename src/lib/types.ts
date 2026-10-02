@@ -19,6 +19,8 @@ export interface RoomDTO {
   name: string;
   status: RoomStatus;
   hostId: string | null;
+  /** 제시어 그룹 id — null = 전체 랜덤 */
+  wordGroupId: number | null;
   players: PlayerDTO[];
 }
 

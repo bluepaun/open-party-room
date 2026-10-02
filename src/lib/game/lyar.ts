@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "../db";
-import { games, players, rooms } from "../db/schema";
-import { WORDS } from "./words";
+import { lyarGames, players, rooms } from "../db/schema";
+import { getWordPool } from "./words";
 import {
   TURN_SECONDS,
   type GameDTO,
@@ -16,7 +16,7 @@ const TURN_MS = TURN_SECONDS * 1000;
 /* ── 조회 ── */
 
 function getGameRow(code: string) {
-  return db.select().from(games).where(eq(games.roomId, code)).get() ?? null;
+  return db.select().from(lyarGames).where(eq(lyarGames.roomId, code)).get() ?? null;
 }
 
 export function buildTally(g: NonNullable<ReturnType<typeof getGameRow>>): TallyRow[] {
@@ -79,9 +79,10 @@ function norm(s: string): string {
   return s.trim().replace(/\s+/g, "").toLowerCase();
 }
 
-function pickWord(used: number[]): number {
-  const pool = WORDS.map((_, i) => i).filter((i) => !used.includes(i));
-  const from = pool.length > 0 ? pool : WORDS.map((_, i) => i);
+function pickWord(pool: string[], used: string[]): string {
+  const usedNorm = new Set(used.map(norm));
+  const fresh = pool.filter((w) => !usedNorm.has(norm(w)));
+  const from = fresh.length > 0 ? fresh : pool;
   return from[Math.floor(Math.random() * from.length)];
 }
 
@@ -120,18 +121,18 @@ export function startGame(code: string): StartResult | StartError {
   if (playerRows.length > 8) return { ok: false, error: "최대 8명까지예요." };
 
   const prev = getGameRow(code);
-  const wordId = pickWord(prev?.usedWords ?? []);
-  const word = WORDS[wordId];
+  const pool = getWordPool(room.wordGroupId); // null = 전체 랜덤
+  if (pool.length === 0) return { ok: false, error: "제시어가 없어요. 관리자에게 문의하세요." };
+  const word = pickWord(pool, prev?.usedWords ?? []);
   const ids = playerRows.map((p) => p.id);
   const liarId = ids[Math.floor(Math.random() * ids.length)];
 
-  db.delete(games).where(eq(games.roomId, code)).run();
-  db.insert(games)
+  db.delete(lyarGames).where(eq(lyarGames.roomId, code)).run();
+  db.insert(lyarGames)
     .values({
       id: randomUUID(),
       roomId: code,
       word,
-      wordId,
       liarPlayerId: liarId,
       order: shuffle(ids),
       phase: "reveal",
@@ -142,7 +143,7 @@ export function startGame(code: string): StartResult | StartError {
       guess: null,
       result: null,
       resultReason: null,
-      usedWords: [...(prev?.usedWords ?? []), wordId],
+      usedWords: [...(prev?.usedWords ?? []), word],
       turnEndedAt: null,
       startedAt: Date.now(),
     })
@@ -178,13 +179,13 @@ export function confirmReveal(code: string, playerId: string): GameDTO | null {
   if (!g.confirmed.includes(playerId)) {
     const confirmed = [...g.confirmed, playerId];
     const everyone = confirmed.length >= g.order.length;
-    db.update(games)
+    db.update(lyarGames)
       .set(
         everyone
           ? { confirmed, phase: "explain", turnEndedAt: Date.now() + TURN_MS }
           : { confirmed },
       )
-      .where(eq(games.id, g.id))
+      .where(eq(lyarGames.id, g.id))
       .run();
   }
   return getGameDTO(code);
@@ -213,13 +214,13 @@ export function advanceExplain(
     : { explainIndex: g.explainIndex + 1, turnEndedAt: Date.now() + TURN_MS };
 
   const res = db
-    .update(games)
+    .update(lyarGames)
     .set(patch)
     .where(
       and(
-        eq(games.id, g.id),
-        eq(games.phase, "explain"),
-        eq(games.explainIndex, g.explainIndex),
+        eq(lyarGames.id, g.id),
+        eq(lyarGames.phase, "explain"),
+        eq(lyarGames.explainIndex, g.explainIndex),
       ),
     )
     .run();
@@ -230,7 +231,7 @@ export function advanceExplain(
 /** 턴 만료 sweep: explain 단계 + turnEndedAt 지난 게임만. */
 export function sweepExpiredTurns(): string[] {
   const now = Date.now();
-  const all = db.select().from(games).where(eq(games.phase, "explain")).all();
+  const all = db.select().from(lyarGames).where(eq(lyarGames.phase, "explain")).all();
   const expired = all.filter((g) => g.turnEndedAt !== null && g.turnEndedAt < now);
   const changed: string[] = [];
   for (const g of expired) {
@@ -265,9 +266,9 @@ export function castVote(
     accusedPlayerId = tops.length === 1 ? tops[0] : null;
   }
 
-  db.update(games)
+  db.update(lyarGames)
     .set(allVoted ? { votes, accusedPlayerId } : { votes })
-    .where(eq(games.id, g.id))
+    .where(eq(lyarGames.id, g.id))
     .run();
   return getGameDTO(code);
 }
@@ -285,7 +286,7 @@ export function advanceAfterTally(code: string): GameDTO | null {
     return finish(code, "lyar", "투표가 동률로 끝났어요. 아무도 지목되지 않았으니 라이어가 무사히 빠져나갔어요.");
   }
   if (g.accusedPlayerId === g.liarPlayerId) {
-    db.update(games).set({ phase: "guess" }).where(eq(games.id, g.id)).run();
+    db.update(lyarGames).set({ phase: "guess" }).where(eq(lyarGames.id, g.id)).run();
     return getGameDTO(code);
   }
   // 규칙 5: 투표가 라이어를 빠지면 라이어 승리 (무사 탈출)
@@ -335,14 +336,14 @@ function finish(
 ): GameDTO {
   const g = getGameRow(code);
   if (!g) throw new Error("game not found");
-  db.update(games)
+  db.update(lyarGames)
     .set({
       phase: "result",
       result,
       resultReason: reason,
       ...(guess ? { guess } : {}),
     })
-    .where(eq(games.id, g.id))
+    .where(eq(lyarGames.id, g.id))
     .run();
   return getGameDTO(code)!;
 }
@@ -351,7 +352,7 @@ function finish(
 export function resetToLobby(code: string): RoomDTO | null {
   const room = db.select().from(rooms).where(eq(rooms.code, code)).get();
   if (!room) return null;
-  db.delete(games).where(eq(games.roomId, code)).run();
+  db.delete(lyarGames).where(eq(lyarGames.roomId, code)).run();
   db.update(rooms).set({ status: "lobby" }).where(eq(rooms.code, code)).run();
   return requireRoom(code);
 }
@@ -370,6 +371,7 @@ function requireRoom(code: string): RoomDTO | null {
     name: room.name,
     status: room.status as RoomDTO["status"],
     hostId: room.hostPlayerId,
+    wordGroupId: room.wordGroupId ?? null,
     players: ps.map((p) => ({
       id: p.id,
       name: p.name,

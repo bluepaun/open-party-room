@@ -1,53 +1,34 @@
-/** 라이어 게임 제시어 목록 (원본 HTML과 동일) */
-export const WORDS = [
-  "치킨",
-  "바나나",
-  "피자",
-  "양말",
-  "우산",
-  "자전거",
-  "선풍기",
-  "세탁기",
-  "엘리베이터",
-  "치과",
-  "약국",
-  "수영장",
-  "미로",
-  "나침반",
-  "시계",
-  "지문",
-  "별자리",
-  "눈사람",
-  "산타할아버지",
-  "할로윈",
-  "크리스마스",
-  "생일잔치",
-  "폭죽",
-  "드론",
-  "로봇",
-  "레이저",
-  "우주정거장",
-  "화성",
-  "심해",
-  "유리병",
-  "편지",
-  "비밀번호",
-  "퍼즐",
-  "풍선",
-  "로켓",
-  "기차",
-  "비행기",
-  "지도",
-  "출근",
-  "회의",
-  "면접",
-  "결혼식",
-  "졸업식",
-  "목욕",
-  "양치질",
-  "손가락",
-  "거북이",
-  "호떡",
-  "마라탕",
-  "고양이",
-] as const;
+import { asc, eq } from "drizzle-orm";
+import { db } from "../db";
+import { wordGroups, words } from "../db/schema";
+
+export interface WordGroupDTO {
+  id: number;
+  name: string;
+  count: number;
+}
+
+/** 제시어 그룹 목록 (각 그룹의 단어 수 포함) — 로비 설정 UI용 */
+export function listWordGroups(): WordGroupDTO[] {
+  const groupRows = db
+    .select({ id: wordGroups.id, name: wordGroups.name, sort: wordGroups.sort })
+    .from(wordGroups)
+    .orderBy(asc(wordGroups.sort), asc(wordGroups.id))
+    .all();
+  const wordRows = db.select({ groupId: words.groupId }).from(words).all();
+  const counts: Record<number, number> = {};
+  for (const r of wordRows) counts[r.groupId] = (counts[r.groupId] ?? 0) + 1;
+  return groupRows.map((g) => ({ id: g.id, name: g.name, count: counts[g.id] ?? 0 }));
+}
+
+/**
+ * 제시어 풀.
+ * @param groupId null = 전체 랜덤 (모든 그룹), 그 외 = 해당 그룹만
+ */
+export function getWordPool(groupId: number | null): string[] {
+  const rows =
+    groupId === null
+      ? db.select({ word: words.word }).from(words).all()
+      : db.select({ word: words.word }).from(words).where(eq(words.groupId, groupId)).all();
+  return rows.map((r) => r.word);
+}

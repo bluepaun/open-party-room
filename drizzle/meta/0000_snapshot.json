@@ -1,11 +1,11 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "9c5a91a9-3be0-4e84-976e-cec6801c2bdb",
+  "id": "e2647aa6-5fee-4dc5-a5b3-9bef0e5d24bc",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
-    "games": {
-      "name": "games",
+    "lyar_games": {
+      "name": "lyar_games",
       "columns": {
         "id": {
           "name": "id",
@@ -24,13 +24,6 @@
         "word": {
           "name": "word",
           "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "word_id": {
-          "name": "word_id",
-          "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -134,9 +127,9 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "games_room_id_rooms_code_fk": {
-          "name": "games_room_id_rooms_code_fk",
-          "tableFrom": "games",
+        "lyar_games_room_id_rooms_code_fk": {
+          "name": "lyar_games_room_id_rooms_code_fk",
+          "tableFrom": "lyar_games",
           "tableTo": "rooms",
           "columnsFrom": [
             "room_id"
@@ -253,6 +246,13 @@
           "autoincrement": false,
           "default": "'lobby'"
         },
+        "word_group_id": {
+          "name": "word_group_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -263,6 +263,99 @@
       },
       "indexes": {},
       "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "word_groups": {
+      "name": "word_groups",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sort": {
+          "name": "sort",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "word_groups_name_unique": {
+          "name": "word_groups_name_unique",
+          "columns": [
+            "name"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "words": {
+      "name": "words",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "word": {
+          "name": "word",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "words_word_unique": {
+          "name": "words_word_unique",
+          "columns": [
+            "word"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "words_group_id_word_groups_id_fk": {
+          "name": "words_group_id_word_groups_id_fk",
+          "tableFrom": "words",
+          "tableTo": "word_groups",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

@@ -10,8 +10,9 @@ import { RoomProvider, useRoom } from "./socket-context";
 import { LobbyView } from "./lobby-view";
 import { GameView } from "./game-view";
 import { MeChip, PhaseNav } from "./shared";
+import type { WordGroupDTO } from "@/lib/game/words";
 
-function RoomShell() {
+function RoomShell({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
   const { room, game, connected, authFailed, roomClosed, meId, meName } = useRoom();
   const router = useRouter();
   const [viewLobby, setViewLobby] = useState(false);
@@ -83,7 +84,7 @@ function RoomShell() {
 
       <main className="flex-1 px-4 py-10 md:px-6 lg:px-10 lg:py-10">
         {showLobby ? (
-          <LobbyView />
+          <LobbyView wordGroups={wordGroups} />
         ) : (
           <GameView onLobby={() => setViewLobby(true)} />
         )}
@@ -96,14 +97,16 @@ export function RoomClient({
   code,
   playerId,
   name,
+  wordGroups,
 }: {
   code: string;
   playerId: string;
   name: string;
+  wordGroups: WordGroupDTO[];
 }) {
   return (
     <RoomProvider code={code} playerId={playerId} name={name}>
-      <RoomShell />
+      <RoomShell wordGroups={wordGroups} />
     </RoomProvider>
   );
 }

@@ -83,13 +83,20 @@ lobby →(host: game:start)→ reveal(개별 역할 비공개, 모두 확인)
   타이머는 표시용, 서버가 권위).
 - 게임 중 이탈(닫힘·나가기) → 원본과 동일하게 **이번 판 초기화** 후 대기실 복귀.
 - 결과 후 호스트 "한 판 더" → 같은 플레이어 구성으로 새 라운드 (제시어 재사용 방지).
+- **제시어 그룹**: 호스트가 대기실에서 그룹을 선택하거나 "전체 랜덤"으로 두면
+  그 그룹의 단어만(또는 전체 단어를) 풀로 사용. Server Action으로 저장하고
+  `room:state`로 모든 기기에 실시간 동기화. 다음 판부터 적용.
 
 ### DB 스키마 (Drizzle, SQLite)
 
-- `rooms` — code(4자, PK), name, game, hostPlayerId, status(lobby|game)
+- `rooms` — code(4자, PK), name, game, hostPlayerId, status(lobby|game),
+  wordGroupId(null = 전체 랜덤)
 - `players` — id, roomId, name, joinedAt · unique(roomId, name)
-- `games` — word, liarPlayerId, order[], phase, explainIndex, confirmed[],
-  votes{}, accusedPlayerId, guess, result, usedWords[], turnEndedAt
+- `lyar_games` — 라이어 게임 전용 라운드 상태 (word, liarPlayerId, order[],
+  phase, explainIndex, confirmed[], votes{}, accusedPlayerId, guess, result,
+  usedWords[], turnEndedAt) — 게임 종류가 추가되면 게임별 테이블로 확장
+- `word_groups` — id, name, sort · 제시어 그룹 (시드: 9그룹 × 10단어)
+- `words` — id, groupId, word · unique(word)
 
 ### 폴더 구조
 

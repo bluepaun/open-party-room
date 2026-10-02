@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { players, rooms } from "@/lib/db/schema";
+import { players, rooms, wordGroups } from "@/lib/db/schema";
 import {
   countPlayers,
   generateRoomCode,
@@ -138,6 +138,27 @@ export async function leaveRoom(code: string, playerId: string) {
   if (room) emitRoomState(code, room);
   else emitRoomClosed(code);
   redirect("/");
+}
+
+/** 호스트만. 제시어 그룹 설정 (null = 전체 랜덤). */
+export async function setWordGroup(
+  code: string,
+  playerId: string,
+  groupId: number | null,
+): Promise<{ ok: boolean; error?: string }> {
+  const room = db.select().from(rooms).where(eq(rooms.code, code)).get();
+  if (!room) return { ok: false, error: "방을 찾을 수 없어요." };
+  if (room.hostPlayerId !== playerId) {
+    return { ok: false, error: "호스트만 설정할 수 있어요." };
+  }
+  if (groupId !== null) {
+    const grp = db.select().from(wordGroups).where(eq(wordGroups.id, groupId)).get();
+    if (!grp) return { ok: false, error: "존재하지 않는 그룹이에요." };
+  }
+  db.update(rooms).set({ wordGroupId: groupId }).where(eq(rooms.code, code)).run();
+  const roomDTO = getRoomDTO(code);
+  if (roomDTO) emitRoomState(code, roomDTO);
+  return { ok: true };
 }
 
 /** 호스트만. 방 전체를 정리 → 홈. */

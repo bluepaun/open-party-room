@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq, asc } from "drizzle-orm";
 import { db } from "./db";
-import { players, rooms, games } from "./db/schema";
+import { players, rooms, lyarGames } from "./db/schema";
 import type { PlayerDTO, RoomDTO } from "./types";
 
 /** 코드의 가독성을 위해 I·L·O·0·1 제거 */
@@ -44,6 +44,7 @@ export function getRoomDTO(code: string): RoomDTO | null {
     name: room.name,
     status: room.status as RoomDTO["status"],
     hostId: room.hostPlayerId,
+    wordGroupId: room.wordGroupId ?? null,
     players: listPlayers(code),
   };
 }
@@ -60,13 +61,13 @@ export function removePlayer(code: string, playerId: string): RoomDTO | null {
   const room = db.select().from(rooms).where(eq(rooms.code, code)).get();
   if (!room) return null;
 
-  const game = db.select().from(games).where(eq(games.roomId, code)).get();
+  const game = db.select().from(lyarGames).where(eq(lyarGames.roomId, code)).get();
   const gameActive = room.status === "game" && game && game.phase !== "result";
 
   db.delete(players).where(eq(players.id, playerId)).run();
 
   if (gameActive) {
-    db.delete(games).where(eq(games.roomId, code)).run();
+    db.delete(lyarGames).where(eq(lyarGames.roomId, code)).run();
     db.update(rooms).set({ status: "lobby" }).where(eq(rooms.code, code)).run();
   }
 

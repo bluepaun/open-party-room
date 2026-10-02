@@ -93,6 +93,26 @@ def main():
         assert "지우" in players_text and "민준" in players_text and "수진" in players_text, players_text
         log("3명 모두 로비 표시 확인")
 
+        # ── 3b. 제시어 그룹 설정 (호스트) ──
+        sel = host.page.locator('select[aria-label="제시어 그룹"]')
+        assert sel.count() > 0, "제시어 그룹 select 미발견"
+        opt_texts = sel.locator("option").all_inner_texts()
+        log(f"그룹 옵션: {opt_texts[0]} / {opt_texts[1]} / … 총 {len(opt_texts)}개")
+        sel.select_option(index=1)  # 전체 랜덤 다음 그룹 (먹거리)
+        # 교차 동기화 확인: 비호스트 p2의 select에 반영될 때까지 대기
+        # (action 커밋 + room:state broadcast 도달 증거 — host 로컬 값만 보면 race)
+        p2sel = p2.page.locator('select[aria-label="제시어 그룹"]')
+        for _ in range(25):
+            if p2sel.input_value() == "1":
+                break
+            host.wait(200)
+        assert p2sel.input_value() == "1", f"비호스트에 그룹 변경이 동기화되지 않음: {p2sel.input_value()!r}"
+        log("그룹 선택 교차 동기화 확인 (p2) — action 커밋 완료")
+        log(f"제시어 그룹 선택됨 (value={sel.input_value()})")
+        assert p2.page.locator('select[aria-label="제시어 그룹"][disabled]').count() > 0, "비호스트 select가 비활성화돼야 함"
+        log("비호스트: 그룹 선택 disabled 확인")
+        shot(host.page, "03b-wordgroup")
+
         # ── 4. 게임 시작 ──
         host.page.click('button:has-text("게임 시작")')
         host.wait(1500)
@@ -158,6 +178,18 @@ def main():
         shot(host.page, "09-result")
         result_text = host.page.text_content("main")
         log(f"결과 화면: {result_text[:80]!r}")
+
+        # 결과 제시어가 선택한 그룹의 단어인지 DB로 교차 검증
+        import sqlite3
+        word_el = host.page.locator('p:text-is("제시어") + p')
+        game_word = word_el.first.text_content().strip() if word_el.count() > 0 else None
+        con = sqlite3.connect("data/partyroom.db")
+        gid = con.execute("SELECT word_group_id FROM rooms WHERE code=?", (code,)).fetchone()[0]
+        q = "SELECT word FROM words" + (" WHERE group_id=?" if gid else "")
+        group_words = [r[0] for r in con.execute(q, (gid,) if gid else ())]
+        con.close()
+        assert game_word in group_words, f"결과 제시어 {game_word!r}이(가) 선택 그룹(id={gid})에 없음: {group_words}"
+        log(f"결과 제시어 {game_word!r} ∈ 선택 그룹(id={gid}) ✓")
 
         # ── 8. 한 판 더 (호스트) ──
         host.page.click('button:has-text("한 판 더")')
