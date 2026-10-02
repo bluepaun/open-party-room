@@ -2,13 +2,14 @@
 브라우저 E2E — 3개 독립 컨텍스트(기기)로 전체 유저 여정을 검증.
 실행: /Users/bluepaun/.pi/agent/skills/camoufox-search/.venv/bin/python scripts/browser_e2e.py
 """
+import os
 import sys
 import time
 from pathlib import Path
 
 from camoufox.sync_api import Camoufox
 
-BASE = "http://localhost:3000"
+BASE = os.environ.get("BASE_URL") or f"http://localhost:{os.environ.get('PORT', '3000')}"
 SHOTS = Path("/tmp/party-shots")
 SHOTS.mkdir(exist_ok=True)
 

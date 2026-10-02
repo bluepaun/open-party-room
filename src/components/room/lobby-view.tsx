@@ -227,12 +227,10 @@ export function LobbyView({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
               }}
               className="h-11 w-full appearance-none rounded-lg border border-border bg-background pl-3.5 pr-9 text-sm font-semibold outline-none transition-colors focus:border-foreground disabled:cursor-not-allowed disabled:text-muted-foreground"
             >
-              <option value="">
-                전체 랜덤 ({wordGroups.reduce((s, g) => s + g.count, 0)}개)
-              </option>
+              <option value="">전체 랜덤</option>
               {wordGroups.map((g) => (
                 <option key={g.id} value={g.id}>
-                  {g.name} ({g.count}개)
+                  {g.name}
                 </option>
               ))}
             </select>

@@ -8,7 +8,7 @@ import { io, type Socket } from "socket.io-client";
 import { db } from "../src/lib/db";
 import { lyarGames, players, rooms, wordGroups, words } from "../src/lib/db/schema";
 
-const URL = "http://localhost:3000";
+const URL = process.env.E2E_URL ?? `http://localhost:${process.env.PORT ?? 3000}`;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 let failures = 0;
 
