@@ -50,6 +50,7 @@ interface RoomContextValue {
   next: () => void;
   submitGuess: (word: string) => void;
   cmyGuess: (word: string) => void;
+  cmyPass: () => void;
   cmyConfirm: () => void;
   cmyMasterSubmit: (words: Record<string, string>) => Promise<AckResult>;
 }
@@ -181,6 +182,9 @@ export function RoomProvider({
   const cmyGuess = useCallback((word: string) => {
     socketRef.current?.emit(C2S.cmyGuess, word);
   }, []);
+  const cmyPass = useCallback(() => {
+    socketRef.current?.emit(C2S.cmyPass);
+  }, []);
   const cmyConfirm = useCallback(() => {
     socketRef.current?.emit(C2S.cmyConfirm);
   }, []);
@@ -217,13 +221,14 @@ export function RoomProvider({
       next,
       submitGuess,
       cmyGuess,
+      cmyPass,
       cmyConfirm,
       cmyMasterSubmit,
     }),
     [
       room, game, you, myVote, cmyGame, cmyYou, cmyMyGuess, connected, authFailed, roomClosed,
       playerId, name, startGame, newRound, confirmReveal, explainDone,
-      vote, next, submitGuess, cmyGuess, cmyConfirm, cmyMasterSubmit,
+      vote, next, submitGuess, cmyGuess, cmyPass, cmyConfirm, cmyMasterSubmit,
     ],
   );
 

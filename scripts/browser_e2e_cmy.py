@@ -180,6 +180,7 @@ def main():
 
         solved = set()
         wrong = set()
+        passed = set()
         while len(solved) < 3:
             turn_key = None
             for key, d in devices.items():
@@ -192,6 +193,14 @@ def main():
             assert turn_key, f"턴 플레이어 미발견 (solved={solved})"
             d = devices[turn_key]
             name = names[turn_key]
+
+            if turn_key not in passed:
+                d.page.click('button:has-text("턴 넘기기")')
+                passed.add(turn_key)
+                log(f"손: {name} 턴 넘기기 (패스) → 다음 차례")
+                for x in devices.values():
+                    x.wait(800)
+                continue
 
             if turn_key not in wrong:
                 d.page.fill("#cmy-guess", "없는 단어 xyz")

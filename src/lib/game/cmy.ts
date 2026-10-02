@@ -328,6 +328,16 @@ function advanceTurn(code: string, opts: { requireExpired?: boolean } = {}): Cmy
   return getCmyGameDTO(code);
 }
 
+/* ── play: 턴 넘기기 (hand 모드, 턴 플레이어) ── */
+
+export function passCmyTurn(code: string, playerId: string): CmyGameDTO | null {
+  const g = getGameRow(code);
+  if (!g || g.phase !== "play" || g.mode !== "hand") return null;
+  if (g.order[g.turnIndex] !== playerId) return null;
+  if (g.solved[playerId]) return null;
+  return advanceTurn(code);
+}
+
 /* ── play: 정답 추정 (hand 모드, 자신의 턴에만, 실패 시 질문 기회 상실) ── */
 
 export function guessCmyWord(

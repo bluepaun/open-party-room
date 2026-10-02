@@ -21,6 +21,7 @@ import {
   getCmyGameDTO,
   guessCmyWord,
   masterSubmitWords,
+  passCmyTurn,
   startCmyGame,
   startCmyNewRound,
   sweepCmy,
@@ -211,6 +212,12 @@ export function setupSocketServer(io: Server) {
     socket.on(C2S.cmyGuess, (word: unknown) => {
       const { game, myGuess } = guessCmyWord(code, playerId, String(word ?? ""));
       if (myGuess) socket.emit(EV.myCmyGuess, myGuess);
+      if (game) emitCmyState(io, code);
+    });
+
+    // hand 모드: 턴 넘기기
+    socket.on(C2S.cmyPass, () => {
+      const game = passCmyTurn(code, playerId);
       if (game) emitCmyState(io, code);
     });
 

@@ -157,6 +157,8 @@ export const C2S = {
   newRound: "game:new-round",
   /** cmy: 정답 추정 (hand 모드, 턴 플레이어) */
   cmyGuess: "cmy:guess",
+  /** cmy: 턴 넘기기 (hand 모드, 턴 플레이어) */
+  cmyPass: "cmy:pass",
   /** cmy: 정답 확인 (forehead 모드 — 다른 사람이 맞히면 눌러줌) */
   cmyConfirm: "cmy:confirm",
   /** cmy: 출제자의 단어 제출 (setup) */

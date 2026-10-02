@@ -280,35 +280,45 @@ async function main() {
     "비턴 플레이어의 추정 무시 (신규 이벤트 없음)",
   );
 
-  // 2) 턴 플레이어 오답 → 질문 기회 상실 (턴 second로)
-  await doGuess(firstC, "없는단어_xyz", false, undefined, "턴1 오답");
-  await secondC.waitState((g) => g.turnPlayerId === second);
-  check(secondC.state!.turnPlayerId === second, "턴1: 오답 → 질문 기회 상실 (턴 second로)");
-
-  // 3) hand 모드에서는 '정답' 확인 버튼 무시
-  secondC.confirm();
+  // 2) 비턴 패스 무시
+  secondC.s.emit("cmy:pass");
   await secondC.sleep(500);
-  check(secondC.state!.solvedCount === 0, "hand 모드: cmy:confirm 무시");
+  check(secondC.state!.turnPlayerId === first, "비턴 플레이어의 턴 넘기기 무시");
 
-  // 4) second: 정답 추정 rank1 → 턴 first
-  await doGuess(secondC, secondWord, true, 1, "턴2");
-  await secondC.waitState((g) => g.solvedCount === 1);
-  check(secondC.state!.solvedCount === 1, "턴2: 추정 성공 → solvedCount=1");
+  // 3) first: 턴 넘기기(패스) → 턴 second
+  firstC.s.emit("cmy:pass");
+  await secondC.waitState((g) => g.turnPlayerId === second);
+  check(secondC.state!.turnPlayerId === second, "턴 넘기기 → 턴 second");
+
+  // 4) second: 오답 → 질문 기회 상실 (턴 first)
+  await doGuess(secondC, "없는단어_xyz", false, undefined, "턴1 오답");
   await firstC.waitState((g) => g.turnPlayerId === first);
-  check(firstC.state!.turnPlayerId === first, "턴3: 턴 first로 회귀 (second 해결)");
+  check(firstC.state!.turnPlayerId === first, "턴1: 오답 → 질문 기회 상실 (턴 first)");
 
-  // 5) first: 정답 추정 rank2 → 전원 해결
-  await doGuess(firstC, firstWord, true, 2, "턴3");
+  // 5) hand 모드에서는 '정답' 확인 버튼 무시
+  firstC.confirm();
+  await firstC.sleep(500);
+  check(firstC.state!.solvedCount === 0, "hand 모드: cmy:confirm 무시");
+
+  // 6) first: 정답 추정 rank1 → 턴 second
+  await doGuess(firstC, firstWord, true, 1, "턴2");
+  await firstC.waitState((g) => g.solvedCount === 1);
+  check(firstC.state!.solvedCount === 1, "턴2: 추정 성공 → solvedCount=1");
+  await secondC.waitState((g) => g.turnPlayerId === second);
+  check(secondC.state!.turnPlayerId === second, "턴3: 턴 second (first 해결)");
+
+  // 7) second: 정답 추정 rank2 → 전원 해결
+  await doGuess(secondC, secondWord, true, 2, "턴3");
 
   const result1 = await ca.waitState((g) => g.phase === "result");
   check(result1.phase === "result", "전원 해결 → 결과");
   check(
-    result1.ranking?.[0].playerId === second && result1.ranking?.[0].rank === 1,
-    "1위 = second (먼저 맞춤)",
+    result1.ranking?.[0].playerId === first && result1.ranking?.[0].rank === 1,
+    "1위 = first (먼저 맞춤)",
   );
   check(
-    result1.ranking?.[1].playerId === first && result1.ranking?.[1].rank === 2,
-    "2위 = first",
+    result1.ranking?.[1].playerId === second && result1.ranking?.[1].rank === 2,
+    "2위 = second",
   );
   check(
     result1.players.find((x) => x.id === a)?.word === wordA,

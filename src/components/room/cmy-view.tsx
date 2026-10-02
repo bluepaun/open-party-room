@@ -311,7 +311,7 @@ function ForeheadPlay({ game, you }: { game: CmyGameDTO; you: CmyYouView | null 
    타인 단어 카드 트레이 + 내 차례에 정답만 입력
    ════════════════════════════════════════════ */
 function HandPlay({ game, you }: { game: CmyGameDTO; you: CmyYouView | null }) {
-  const { cmyMyGuess, meId, cmyGuess } = useRoom();
+  const { cmyMyGuess, meId, cmyGuess, cmyPass } = useRoom();
   const [guess, setGuess] = useState("");
 
   const me = game.players.find((p) => p.id === meId) ?? null;
@@ -437,7 +437,7 @@ function HandPlay({ game, you }: { game: CmyGameDTO; you: CmyYouView | null }) {
         </Card>
       ) : null}
 
-      {/* 내 턴: 정답 입력 (질문 없음) */}
+      {/* 내 턴: 정답 입력 (질문 없음) + 턴 넘기기 */}
       {iAmTurn && !iAmMaster && !iSolved ? (
         <Card className="mt-5 rounded-2xl p-4">
           <Label htmlFor="cmy-guess">내 단어</Label>
@@ -465,6 +465,13 @@ function HandPlay({ game, you }: { game: CmyGameDTO; you: CmyYouView | null }) {
               외치기!
             </Button>
           </div>
+          <Button
+            variant="outline"
+            className="mt-2.5 h-11 w-full rounded-lg text-sm text-muted-foreground"
+            onClick={cmyPass}
+          >
+            턴 넘기기
+          </Button>
         </Card>
       ) : null}
 
