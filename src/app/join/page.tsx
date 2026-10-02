@@ -7,7 +7,7 @@ import { JoinRoomForm } from "@/components/join-room-form";
 import { Card } from "@/components/ui/card";
 
 export const metadata: Metadata = {
-  title: "코드로 참가 · 파티룸",
+  title: "코드로 참가 · 오픈파티룸",
 };
 
 export default function JoinPage() {

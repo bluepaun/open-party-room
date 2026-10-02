@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "파티룸",
-    template: "%s · 파티룸",
+    default: "오픈파티룸",
+    template: "%s · 오픈파티룸",
   },
   description:
     "3명 이상이 함께 즐기는 멀티플레이 파티 게임. 현재 플레이 가능: 라이어 게임, 양세찬 게임",

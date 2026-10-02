@@ -14,7 +14,7 @@ export function TopNav({ right }: { right?: React.ReactNode }) {
             aria-hidden="true"
             className="size-2.5 flex-none rounded-full bg-primary"
           />
-          파티룸
+          오픈파티룸
         </Link>
         {right ? (
           <div className="flex min-w-0 items-center gap-2.5">{right}</div>
@@ -28,7 +28,7 @@ export function PageFoot() {
   return (
     <footer className="mt-12 border-t border-border py-8">
       <div className="mx-auto flex max-w-7xl flex-wrap justify-between gap-4 px-4 text-sm text-muted-foreground md:px-6 lg:px-10">
-        <span>© 2026 파티룸</span>
+        <span>© 2026 오픈파티룸</span>
       </div>
     </footer>
   );

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { CreateRoomForm } from "@/components/create-room-form";
 
 export const metadata: Metadata = {
-  title: "방 만들기 · 파티룸",
+  title: "방 만들기 · 오픈파티룸",
 };
 
 export default async function CreateRoomPage({
