@@ -13,7 +13,8 @@ import {
   removePlayer,
 } from "@/lib/rooms";
 import { getGameDTO } from "@/lib/game/lyar";
-import { emitRoomClosed, emitRoomState } from "@/lib/broadcast";
+import { emitRoomClosed, emitRoomState, getIo } from "@/lib/broadcast";
+import { cancelDisconnectGracePeriod } from "@/lib/socket";
 import { MAX_PLAYERS } from "@/lib/types";
 
 const COOKIE = "partyroom.me";
@@ -109,6 +110,38 @@ export async function joinRoom(
   const roomRow = db.select().from(rooms).where(eq(rooms.code, code)).get();
   if (!roomRow) return { error: "방을 찾을 수 없어요. 코드를 확인해 주세요." };
 
+  const cookieData = await readCookieData();
+  const myPreviousId = cookieData[code]?.id;
+  if (myPreviousId) {
+    const myRow = db.select().from(players).where(eq(players.id, myPreviousId)).get();
+    if (myRow && myRow.roomId === code) {
+      redirect(`/room/${code}`);
+    }
+  }
+
+  const existing = db.select().from(players).where(eq(players.roomId, code)).all();
+  const sameName = existing.find((p) => p.name.toLowerCase() === name.toLowerCase());
+
+  if (sameName) {
+    // 이미 이 방에 동일한 이름의 플레이어가 존재하는 경우:
+    // 소켓이 연결되어 있지 않거나 쿠키 id가 일치하면 기존 세션으로 복구(재접속 허용)
+    const io = getIo();
+    const isSocketActive = io
+      ? [...io.of("/").sockets.values()].some(
+          (s) =>
+            (s.data as { code?: string; playerId?: string }).playerId === sameName.id &&
+            (s.data as { code?: string; playerId?: string }).code === code,
+        )
+      : false;
+
+    if (!isSocketActive || myPreviousId === sameName.id) {
+      await setIdentity(code, sameName.id, sameName.name);
+      redirect(`/room/${code}`);
+    }
+
+    return { error: "이미 같은 이름의 플레이어가 참여 중이에요. 다른 이름으로 참가해 주세요." };
+  }
+
   if (roomRow.status === "game") {
     const game = getGameDTO(code);
     if (game && game.phase !== "result") {
@@ -118,11 +151,6 @@ export async function joinRoom(
 
   if (countPlayers(code) >= MAX_PLAYERS) {
     return { error: "이 방은 8명까지 참여할 수 있어요." };
-  }
-
-  const existing = db.select().from(players).where(eq(players.roomId, code)).all();
-  if (existing.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
-    return { error: "이미 같은 이름의 플레이어가 있어요. 다른 이름으로 참가해 주세요." };
   }
 
   const playerId = randomUUID();
@@ -136,6 +164,7 @@ export async function joinRoom(
 
 /** 방 나가기 (대기실·결과 포함) → 홈. 게임 중이면 이번 판 초기화. */
 export async function leaveRoom(code: string, playerId: string) {
+  cancelDisconnectGracePeriod(code, playerId);
   const room = removePlayer(code, playerId);
   await clearIdentity(code);
   if (room) emitRoomState(code, room);

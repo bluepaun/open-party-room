@@ -128,6 +128,7 @@ export interface GameDTO {
 export interface YouRoleDTO {
   isLiar: boolean;
   word: string | null;
+  confirmed?: boolean;
 }
 
 /** 서버 → 클라이언트 이벤트 */
@@ -148,6 +149,8 @@ export const EV = {
 
 /** 클라이언트 → 서버 이벤트 */
 export const C2S = {
+  sync: "room:sync",
+  leave: "room:leave",
   start: "game:start",
   confirm: "game:confirm",
   explainDone: "game:explain-done",

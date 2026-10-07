@@ -31,6 +31,7 @@ function RevealScreen() {
 
   if (!game) return null;
   const isLiar = you?.isLiar ?? false;
+  const isConfirmed = confirmed || (you?.confirmed ?? false);
 
   return (
     <div>
@@ -67,7 +68,7 @@ function RevealScreen() {
         </p>
       </motion.div>
 
-      {you !== null && !confirmed ? (
+      {you !== null && !isConfirmed ? (
         <Button
           onClick={() => {
             setConfirmed(true);
@@ -79,7 +80,7 @@ function RevealScreen() {
         </Button>
       ) : null}
 
-      {confirmed ? (
+      {isConfirmed ? (
         <div className="mt-7 flex items-center justify-center gap-2.5 text-sm text-muted-foreground">
           <PulseDot />
           다른 플레이어 확인 대기 중 · {game.confirmedCount} / {game.order.length}명

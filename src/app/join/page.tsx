@@ -1,6 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { players } from "@/lib/db/schema";
 import { TopNav } from "@/components/top-nav";
 import { Button } from "@/components/ui/button";
 import { JoinRoomForm } from "@/components/join-room-form";
@@ -10,7 +15,32 @@ export const metadata: Metadata = {
   title: "코드로 참가 · 오픈파티룸",
 };
 
-export default function JoinPage() {
+export default async function JoinPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ code?: string }>;
+}) {
+  const params = await searchParams;
+  const rawCode = (params?.code ?? "").trim().toUpperCase();
+  if (/^[A-Z0-9]{4}$/.test(rawCode)) {
+    const store = await cookies();
+    const raw = store.get("partyroom.me")?.value;
+    if (raw) {
+      try {
+        const data = JSON.parse(raw);
+        const me = data[rawCode];
+        if (me?.id) {
+          const player = db.select().from(players).where(eq(players.id, me.id)).get();
+          if (player && player.roomId === rawCode) {
+            redirect(`/room/${rawCode}`);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+
   return (
     <>
       <TopNav

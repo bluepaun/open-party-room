@@ -23,6 +23,10 @@ app.prepare().then(() => {
   const io = new Server(httpServer, {
     path: "/socket.io",
     cors: { origin: true, credentials: true },
+    connectionStateRecovery: {
+      maxDisconnectionDuration: 10 * 60 * 1000,
+      skipMiddlewares: false,
+    },
   });
   setIo(io);
   setupSocketServer(io);

@@ -11,12 +11,16 @@ import { LobbyView } from "./lobby-view";
 import { GameView } from "./game-view";
 import { CmyView } from "./cmy-view";
 import { MeChip, PhaseNav } from "./shared";
+import { useWakeLock } from "./use-wake-lock";
 import type { WordGroupDTO } from "@/lib/game/words";
 
 function RoomShell({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
   const { room, game, cmyGame, connected, authFailed, roomClosed, meId, meName } = useRoom();
   const router = useRouter();
   const [viewLobby, setViewLobby] = useState(false);
+
+  const inGame = room?.status === "game";
+  useWakeLock(inGame);
 
   // viewLobby는 result phase 동안만 의미: 새 라운드 시작(result→아님) 시 자동 해제
   const inResult = room
@@ -55,7 +59,6 @@ function RoomShell({ wordGroups }: { wordGroups: WordGroupDTO[] }) {
     );
   }
 
-  const inGame = room.status === "game";
   const showLobby = !inGame || (viewLobby && inResult);
 
   const exitGame = () => {

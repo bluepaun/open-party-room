@@ -67,7 +67,16 @@ export function buildRole(code: string, playerId: string): YouRoleDTO | null {
   const g = getGameRow(code);
   if (!g) return null;
   const isLiar = g.liarPlayerId === playerId;
-  return { isLiar, word: isLiar ? null : g.word };
+  return {
+    isLiar,
+    word: isLiar ? null : g.word,
+    confirmed: g.confirmed.includes(playerId),
+  };
+}
+
+export function getPlayerVote(code: string, playerId: string): string | null {
+  const g = getGameRow(code);
+  return g?.votes[playerId] ?? null;
 }
 
 function nameOf(code: string, playerId: string): string {

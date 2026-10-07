@@ -317,12 +317,30 @@ async function main() {
   check(gResult2.resultReason.includes("무사히"), "2라운드: 결과 메시지", gResult2.resultReason);
   check(gResult2.guess === null, "2라운드: guess 단계 생략");
 
-  // ── 9. 게임 중 이탈 → 라운드 초기화 (3라운드 reveal, grace 5s) ──
+  // ── 9. 게임 중 소켓 일시 단절 → 방/게임 세션 유지 및 재접속 검증 ──
   const nrAck2 = await c1.ack("game:new-round");
   check(nrAck2.ok, "3라운드 시작");
   await c1.waitForGame((g) => g.phase === "reveal");
   c2.s.disconnect();
-  const rLobby = await c1.waitForRoom((r) => r.status === "lobby", 15000);
+  await sleep(1000);
+  const dbRoomMid = db.select().from(rooms).where(eq(rooms.code, code)).get();
+  check(dbRoomMid?.status === "game", "일시 단절 시 게임 유지 (퇴장 안 됨)");
+  check(
+    db.select().from(players).where(eq(players.roomId, code)).all().length === 3,
+    "DB: 플레이어 삭제 안 됨",
+  );
+
+  // 재접속: 동일 플레이어로 다시 연결 시 역할 정보 및 상태 유지
+  const c2Re = new Client(code, p2);
+  await c2Re.connected();
+  const c2Room = await c2Re.waitForRoom((r) => r.status === "game");
+  check(c2Room.status === "game", "재연결 후 방 상태: game");
+  const reRole = await c2Re.waitForRole();
+  check(reRole !== null, "재연결 후 역할 수신");
+
+  // ── 10. 명시적 퇴장 (room:leave) → 라운드 초기화 ──
+  c2Re.s.emit("room:leave");
+  const rLobby = await c1.waitForRoom((r) => r.status === "lobby", 5000);
   check(rLobby.players.length === 2, "이탈자 제거 broadcast");
   const dbRoom = db.select().from(rooms).where(eq(rooms.code, code)).get();
   check(dbRoom?.status === "lobby", "DB: room → lobby");
@@ -333,7 +351,7 @@ async function main() {
   const dbGame2 = db.select().from(lyarGames).where(eq(lyarGames.roomId, code)).get();
   check(!dbGame2, "DB: game 삭제");
 
-  // ── 10. 재접속 차단 확인 (이탈한 플레이어) ──
+  // ── 11. 재접속 차단 확인 (이탈한 플레이어) ──
   const c4 = new Client(code, p2);
   const reAuth = await c4
     .connected()
@@ -342,6 +360,7 @@ async function main() {
   check(reAuth === "player not found", "이탈 플레이어 재접속 차단", reAuth);
 
   c1.s.disconnect();
+  c2Re.s.disconnect();
   c3.s.disconnect();
   c4.s.disconnect();
   db.delete(rooms).where(eq(rooms.code, code)).run();

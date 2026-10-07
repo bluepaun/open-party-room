@@ -10,6 +10,7 @@ import {
   castVote,
   confirmReveal,
   getGameDTO,
+  getPlayerVote,
   startGame,
   startNewRound,
   submitGuess,
@@ -32,6 +33,25 @@ import { C2S, EV } from "../types";
 interface Ack {
   (res: { ok: boolean; error?: string }): void;
 }
+
+/** 이탈 유예 타이머 (key: `${code}:${playerId}`) */
+const pendingDisconnects = new Map<string, NodeJS.Timeout>();
+
+export function cancelDisconnectGracePeriod(code: string, playerId: string) {
+  const key = `${code}:${playerId}`;
+  const timer = pendingDisconnects.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    pendingDisconnects.delete(key);
+  }
+}
+
+const GRACE_PERIOD_GAME_MS = process.env.DISCONNECT_GRACE_GAME_MS
+  ? Number(process.env.DISCONNECT_GRACE_GAME_MS)
+  : 10 * 60 * 1000; // 게임 중: 기본 10분 유예
+const GRACE_PERIOD_LOBBY_MS = process.env.DISCONNECT_GRACE_LOBBY_MS
+  ? Number(process.env.DISCONNECT_GRACE_LOBBY_MS)
+  : 3 * 60 * 1000; // 대기실: 기본 3분 유예
 
 /**
  * 같은 플레이어의 여러 소켓(새 탭·재연결 중 겹침) 중 가장 오래된 것만 남긴다.
@@ -74,6 +94,36 @@ function emitCmyState(io: Server, code: string) {
   }
 }
 
+/** 접속·재접속·화면 복귀 시 해당 플레이어 소켓에 최신 방/게임 전체 상태 동기화 */
+function sendFullStateToSocket(socket: Socket, code: string, playerId: string) {
+  const room = getRoomDTO(code);
+  if (!room) {
+    socket.disconnect(true);
+    return;
+  }
+  socket.emit(EV.roomState, room);
+
+  if (room.status === "game") {
+    if (room.game === "cmy") {
+      const g = getCmyGameDTO(code);
+      if (g) socket.emit(EV.cmyState, g);
+      const view = buildCmyYouView(code, playerId);
+      if (view) socket.emit(EV.youCmyView, view);
+    } else {
+      const game = getGameDTO(code);
+      if (game) {
+        socket.emit(EV.gameState, game);
+        const role = buildRole(code, playerId);
+        if (role) socket.emit(EV.youRole, role);
+        if (game.phase === "vote") {
+          const myVote = getPlayerVote(code, playerId);
+          if (myVote) socket.emit(EV.myVote, { targetId: myVote });
+        }
+      }
+    }
+  }
+}
+
 export function setupSocketServer(io: Server) {
   setIo(io);
 
@@ -98,27 +148,25 @@ export function setupSocketServer(io: Server) {
     const code = socket.data.code as string;
     const playerId = socket.data.playerId as string;
 
+    // 재접속 시 진행 중인 이탈 타이머 취소 (동일 세션 유지)
+    cancelDisconnectGracePeriod(code, playerId);
+
     evictStaleSockets(io, socket);
     socket.join(`room:${code}`);
 
-    const room = getRoomDTO(code);
-    if (!room) return socket.disconnect(true);
-    socket.emit(EV.roomState, room);
+    // 접속 직후 최신 전체 상태 동기화
+    sendFullStateToSocket(socket, code, playerId);
 
-    if (room.status === "game") {
-      if (room.game === "cmy") {
-        emitCmyState(io, code);
-      } else {
-        const game = getGameDTO(code);
-        if (game) {
-          socket.emit(EV.gameState, game);
-          if (game.phase === "reveal") {
-            const role = buildRole(code, playerId);
-            if (role) socket.emit(EV.youRole, role);
-          }
-        }
-      }
-    }
+    // 클라이언트 포커스/가시성 복귀 시 수동 상태 동기화 요청 처리
+    socket.on(C2S.sync, () => {
+      sendFullStateToSocket(socket, code, playerId);
+    });
+
+    // 플레이어의 명시적 방 나가기 요청
+    socket.on(C2S.leave, () => {
+      cancelDisconnectGracePeriod(code, playerId);
+      handlePlayerLeft(io, code, playerId);
+    });
 
     const emitNewGame = (res: {
       ok: true;
@@ -240,16 +288,39 @@ export function setupSocketServer(io: Server) {
     });
 
     socket.on("disconnect", () => {
-      // 새로고침·네트워크 변동은 재연결로 돌아온다.
-      // 잠시 지켜보다가 진짜 이탈(재연결 없음)일 때만 상태 처리.
-      const t = setTimeout(() => {
-        const stillHere = [...io.of("/").sockets.values()].some(
-          (s) => (s.data as { code?: string; playerId?: string }).playerId === playerId &&
+      // 같은 플레이어의 다른 소켓이 연결되어 있는지 확인
+      const stillHere = [...io.of("/").sockets.values()].some(
+        (s) =>
+          s !== socket &&
+          (s.data as { code?: string; playerId?: string }).playerId === playerId &&
+          (s.data as { code?: string; playerId?: string }).code === code,
+      );
+      if (stillHere) return;
+
+      const disconnectKey = `${code}:${playerId}`;
+      const existingTimer = pendingDisconnects.get(disconnectKey);
+      if (existingTimer) clearTimeout(existingTimer);
+
+      const room = getRoomDTO(code);
+      if (!room) return;
+
+      // 게임 중에는 모바일 화면 꺼짐·앱 전환 등 재연결을 위해 넉넉한 유예 시간(기본 10분) 적용
+      // 대기실에서도 다른 친구 입장을 기다리며 화면을 끌 수 있으므로 기본 3분 적용
+      const graceMs = room.status === "game" ? GRACE_PERIOD_GAME_MS : GRACE_PERIOD_LOBBY_MS;
+
+      const timer = setTimeout(() => {
+        pendingDisconnects.delete(disconnectKey);
+        const isConnectedNow = [...io.of("/").sockets.values()].some(
+          (s) =>
+            (s.data as { code?: string; playerId?: string }).playerId === playerId &&
             (s.data as { code?: string; playerId?: string }).code === code,
         );
-        if (!stillHere) handlePlayerLeft(io, code, playerId);
-      }, 5000);
-      t.unref?.();
+        if (!isConnectedNow) {
+          handlePlayerLeft(io, code, playerId);
+        }
+      }, graceMs);
+      timer.unref?.();
+      pendingDisconnects.set(disconnectKey, timer);
     });
   });
 

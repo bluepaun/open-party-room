@@ -128,7 +128,10 @@ export function RoomProvider({
       setGame(null);
     });
 
-    socket.on("connect", () => setConnected(true));
+    socket.on("connect", () => {
+      setConnected(true);
+      socket.emit(C2S.sync);
+    });
     socket.on("disconnect", () => setConnected(false));
     socket.on("connect_error", (err: Error) => {
       const msg = err.message ?? "";
@@ -138,7 +141,33 @@ export function RoomProvider({
       }
     });
 
+    // 화면 복귀(폰 화면 켜짐·다른 앱에서 복귀·탭 전환) 시 즉시 재연결 및 최신 상태 동기화
+    const syncState = () => {
+      if (socket.connected) {
+        socket.emit(C2S.sync);
+      } else {
+        socket.connect();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        syncState();
+      }
+    };
+
+    const handleFocus = () => {
+      syncState();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("pageshow", handleFocus);
+
     return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("pageshow", handleFocus);
       socket.disconnect();
       socketRef.current = null;
     };
